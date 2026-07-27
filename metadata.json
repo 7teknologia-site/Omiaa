@@ -1,0 +1,6 @@
+{
+  "name": "Omiaá Alquimia Ancestral",
+  "description": "Plataforma e-commerce premium de alquimia ancestral, botânica e rituais de bem-estar.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
