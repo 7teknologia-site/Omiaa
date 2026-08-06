@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /checkout
+Disallow: /account
+Disallow: /api/
+
+Sitemap: https://omiaa.com.br/sitemap.xml

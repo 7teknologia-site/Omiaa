@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 280" width="100%" height="100%">
+  <defs>
+    <!-- Gradients for realistic watercolor wave artwork -->
+    <linearGradient id="waveDeepShadow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1A2F80" />
+      <stop offset="60%" stop-color="#0F1B54" />
+      <stop offset="100%" stop-color="#080E30" />
+    </linearGradient>
+
+    <linearGradient id="waveBody" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4166E1" />
+      <stop offset="35%" stop-color="#2D4CB8" />
+      <stop offset="70%" stop-color="#1C338A" />
+      <stop offset="100%" stop-color="#101F5C" />
+    </linearGradient>
+
+    <linearGradient id="waveLightHighlight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A5C2FF" stop-opacity="0.9" />
+      <stop offset="40%" stop-color="#E2EDFF" stop-opacity="0.95" />
+      <stop offset="75%" stop-color="#729AFF" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#3D63DF" stop-opacity="0.5" />
+    </linearGradient>
+
+    <linearGradient id="crestGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.95" />
+      <stop offset="50%" stop-color="#BDD5FF" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="#4B72E6" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Typography matching exact original attached logo -->
+  <!-- "Omiaá" -->
+  <text x="250" y="102" 
+        font-family="'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif" 
+        font-size="88" 
+        font-weight="500" 
+        fill="#3152CD" 
+        text-anchor="middle" 
+        letter-spacing="-0.5">Omiaá</text>
+
+  <!-- "Alquimia Ancestral" -->
+  <text x="250" y="152" 
+        font-family="'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif" 
+        font-size="38" 
+        font-weight="400" 
+        fill="#3152CD" 
+        text-anchor="middle" 
+        letter-spacing="0">Alquimia Ancestral</text>
+
+  <!-- The 4-Crest Watercolor Wave Motif -->
+  <g id="watercolor-wave" transform="translate(0, 15)">
+    <!-- Base Deep Dark Blue Under-layer -->
+    <path d="M 15 210 
+             C 45 180, 80 230, 125 195 
+             C 170 160, 210 220, 255 188 
+             C 300 156, 340 215, 385 180 
+             C 420 155, 460 185, 485 198 
+             L 485 240
+             C 430 252, 350 256, 260 252
+             C 170 248, 80 254, 15 238 Z" 
+          fill="url(#waveDeepShadow)" opacity="0.9" />
+
+    <!-- Main Watercolor Wave Body -->
+    <path d="M 15 202 
+             C 48 174, 85 220, 128 186 
+             C 172 152, 212 210, 258 178 
+             C 302 146, 342 205, 388 170 
+             C 422 148, 458 174, 485 188 
+             L 485 230
+             C 420 242, 340 240, 250 238
+             C 160 236, 75 242, 15 226 Z" 
+          fill="url(#waveBody)" />
+
+    <!-- Watercolor Light Center Glow / Blend -->
+    <!-- Crest 1 Highlight -->
+    <ellipse cx="80" cy="205" rx="28" ry="12" fill="url(#waveLightHighlight)" opacity="0.75" transform="rotate(-12, 80, 205)" />
+    <!-- Crest 2 Highlight -->
+    <ellipse cx="205" cy="195" rx="34" ry="14" fill="url(#waveLightHighlight)" opacity="0.8" transform="rotate(-8, 205, 195)" />
+    <!-- Crest 3 Highlight -->
+    <ellipse cx="335" cy="188" rx="32" ry="13" fill="url(#waveLightHighlight)" opacity="0.8" transform="rotate(-10, 335, 188)" />
+    <!-- Crest 4 Highlight -->
+    <ellipse cx="445" cy="182" rx="22" ry="10" fill="url(#waveLightHighlight)" opacity="0.7" transform="rotate(-5, 445, 182)" />
+
+    <!-- Upper Wave Crest Soft Lighting -->
+    <path d="M 15 196 
+             C 45 168, 80 210, 125 178 
+             C 170 146, 210 200, 255 170 
+             C 300 140, 340 195, 385 162 
+             C 420 142, 455 166, 485 178 
+             L 485 210
+             C 425 218, 330 216, 250 214
+             C 160 212, 70 218, 15 206 Z" 
+          fill="url(#waveLightHighlight)" opacity="0.6" />
+
+    <!-- Sharp Top Crest Line -->
+    <path d="M 15 196 
+             C 45 168, 80 210, 125 178 
+             C 170 146, 210 200, 255 170 
+             C 300 140, 340 195, 385 162 
+             C 420 142, 455 166, 485 178" 
+          fill="none" 
+          stroke="url(#crestGlow)" 
+          stroke-width="3" 
+          stroke-linecap="round" />
+  </g>
+</svg>
