@@ -1,4 +1,7 @@
 export * from './settings';
+export * from './popup';
+export * from './privacy';
+export * from './marketing';
 
 export type CategoryId = string;
 

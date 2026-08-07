@@ -42,6 +42,12 @@ import {
   DEFAULT_STORE_SETTINGS
 } from '../utils/storeSettings';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { validateMarketingCoupon } from '../services/couponValidator';
+import {
+  getSavedMarketingCoupons,
+  getSavedUsageLogs,
+  recordCouponUsage
+} from '../utils/marketingStorage';
 
 interface ShopContextType {
   storeSettings: StoreSettings;
@@ -87,7 +93,8 @@ interface ShopContextType {
   latestOrder: Order | null;
   createOrder: (paymentMethod: Order['paymentMethod'], address: Order['deliveryAddress'], extraData?: Partial<Order>) => Promise<Order>;
 
-  appliedCoupon: Coupon | null;
+  appliedCoupon: (Coupon & { discountAmount?: number; isFreeShipping?: boolean }) | null;
+  discountAmount: number;
   applyCoupon: (code: string) => Promise<{ success: boolean; message: string }>;
   removeCoupon: () => void;
 
@@ -201,7 +208,7 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [orders, setOrders] = useState<Order[]>([]);
   const [latestOrder, setLatestOrder] = useState<Order | null>(null);
 
-  const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(() => {
+  const [appliedCoupon, setAppliedCoupon] = useState<(Coupon & { discountAmount?: number; isFreeShipping?: boolean }) | null>(() => {
     try {
       const saved = localStorage.getItem('omiaa_coupon');
       return saved ? JSON.parse(saved) : null;
@@ -444,26 +451,15 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setFilters(DEFAULT_FILTERS);
   }, []);
 
-  // Coupon Logic with Supabase Service
-  const applyCoupon = useCallback(async (code: string) => {
-    const couponData = await validateCoupon(code);
-    if (couponData) {
-      setAppliedCoupon(couponData);
-      showToast('Cupom Aplicado!', `${couponData.discountPercent}% de desconto ativado para o seu ritual.`, 'success');
-      return { success: true, message: `Cupom de ${couponData.discountPercent}% aplicado!` };
-    }
-    return { success: false, message: 'Cupom inválido ou expirado.' };
-  }, [showToast]);
-
-  const removeCoupon = useCallback(() => {
-    setAppliedCoupon(null);
-    showToast('Cupom removido', undefined, 'info');
-  }, [showToast]);
-
   // Calculations derived
   const cartSubtotal = useMemo(() => calculateCartSubtotal(cart), [cart]);
   const cartTotalCount = useMemo(() => calculateCartItemCount(cart), [cart]);
-  const discountAmount = useMemo(() => calculateDiscount(cartSubtotal, appliedCoupon), [cartSubtotal, appliedCoupon]);
+  
+  const discountAmount = useMemo(() => {
+    if (!appliedCoupon) return 0;
+    if (appliedCoupon.discountAmount !== undefined) return appliedCoupon.discountAmount;
+    return calculateDiscount(cartSubtotal, appliedCoupon);
+  }, [cartSubtotal, appliedCoupon]);
 
   // Shipping Calculation
   useEffect(() => {
@@ -474,10 +470,65 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [shippingCep, cartSubtotal]);
 
-  const finalShipping = cartSubtotal >= FREE_SHIPPING_THRESHOLD ? 0 : shippingCost;
+  const finalShipping = useMemo(() => {
+    if (appliedCoupon?.isFreeShipping) return 0;
+    if (cartSubtotal >= FREE_SHIPPING_THRESHOLD) return 0;
+    return shippingCost;
+  }, [appliedCoupon, cartSubtotal, shippingCost]);
+
   const cartTotal = Math.max(0, cartSubtotal - discountAmount + finalShipping);
 
-  // Order creation with Supabase backend
+  // Marketing Coupon Validation Logic
+  const applyCoupon = useCallback(async (code: string) => {
+    const availableCoupons = getSavedMarketingCoupons();
+    const usageLogs = getSavedUsageLogs();
+    
+    const result = validateMarketingCoupon({
+      code,
+      cartItems: cart,
+      cartSubtotal,
+      user,
+      userEmail: user?.email,
+      userOrders: orders,
+      availableCoupons,
+      usageLogs
+    });
+
+    if (result.isValid && result.coupon) {
+      const couponObj = {
+        id: result.coupon.id,
+        code: result.coupon.code,
+        discountPercent: result.coupon.discountType === 'percentual' ? result.coupon.discountValue : 0,
+        discountAmount: result.discountAmount,
+        isFreeShipping: result.isFreeShipping
+      };
+      setAppliedCoupon(couponObj);
+      showToast('Cupom Aplicado!', result.message, 'success');
+      return { success: true, message: result.message };
+    }
+
+    // Fallback check to Supabase legacy validateCoupon if not found in local marketing coupons
+    const legacyCoupon = await validateCoupon(code);
+    if (legacyCoupon) {
+      const legacyObj = {
+        ...legacyCoupon,
+        discountAmount: (cartSubtotal * legacyCoupon.discountPercent) / 100
+      };
+      setAppliedCoupon(legacyObj);
+      showToast('Cupom Aplicado!', `${legacyCoupon.discountPercent}% de desconto ativado.`, 'success');
+      return { success: true, message: `Cupom de ${legacyCoupon.discountPercent}% aplicado!` };
+    }
+
+    showToast('Atenção', result.message, 'alert');
+    return { success: false, message: result.message };
+  }, [cart, cartSubtotal, user, orders, showToast]);
+
+  const removeCoupon = useCallback(() => {
+    setAppliedCoupon(null);
+    showToast('Cupom removido', undefined, 'info');
+  }, [showToast]);
+
+  // Order creation with Supabase backend and Coupon Usage Audit Log
   const createOrder = useCallback(async (
     paymentMethod: Order['paymentMethod'],
     address: Order['deliveryAddress'],
@@ -513,6 +564,18 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
       id: `ord-${Date.now()}`
     };
 
+    // Record Coupon Usage Log if coupon was used
+    if (appliedCoupon) {
+      recordCouponUsage(
+        appliedCoupon.code,
+        extraData?.customerEmail || user.email || 'cliente@omiaa.com.br',
+        extraData?.customerName || user.name || 'Cliente Omiaá',
+        finalOrder.code,
+        finalOrder.id,
+        discountAmount
+      );
+    }
+
     setOrders((prev) => [finalOrder, ...prev]);
     setLatestOrder(finalOrder);
     clearCart();
@@ -524,7 +587,7 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     showToast('Pedido Confirmado!', `Pedido #${finalOrder.code} gerado com sucesso.`, 'success');
     return finalOrder;
-  }, [cart, cartSubtotal, finalShipping, discountAmount, cartTotal, clearCart, showToast, user]);
+  }, [cart, cartSubtotal, finalShipping, discountAmount, cartTotal, appliedCoupon, clearCart, showToast, user]);
 
   // Admin action: Add Product to Supabase
   const addNewProduct = useCallback(async (productData: Omit<Product, 'id' | 'createdAt'>) => {
@@ -587,6 +650,7 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     latestOrder,
     createOrder,
     appliedCoupon,
+    discountAmount,
     applyCoupon,
     removeCoupon,
     shippingCep,
@@ -616,6 +680,7 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     cartTotalCount,
     cartSubtotal,
     cartTotal,
+    discountAmount,
     addToCart,
     removeFromCart,
     updateCartQuantity,

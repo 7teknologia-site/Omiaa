@@ -14,7 +14,7 @@ export const OrderSummarySidebar: React.FC<OrderSummarySidebarProps> = ({
   pixDiscount,
   calculatedTotal
 }) => {
-  const { cart, cartSubtotal, appliedCoupon, applyCoupon, removeCoupon } = useShop();
+  const { cart, cartSubtotal, discountAmount, appliedCoupon, applyCoupon, removeCoupon } = useShop();
   const [couponInput, setCouponInput] = useState('');
 
   const handleApplyCoupon = (e: React.FormEvent) => {
@@ -24,7 +24,11 @@ export const OrderSummarySidebar: React.FC<OrderSummarySidebarProps> = ({
     setCouponInput('');
   };
 
-  const couponDiscount = appliedCoupon ? (cartSubtotal * appliedCoupon.discountPercent) / 100 : 0;
+  const couponDiscount = appliedCoupon
+    ? appliedCoupon.discountAmount !== undefined
+      ? appliedCoupon.discountAmount
+      : (cartSubtotal * appliedCoupon.discountPercent) / 100
+    : 0;
 
   return (
     <div className="bg-white p-6 rounded-3xl border border-[#E2D9C8] space-y-6 shadow-xs font-sans">
@@ -59,7 +63,14 @@ export const OrderSummarySidebar: React.FC<OrderSummarySidebarProps> = ({
         <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-xs text-emerald-800">
           <div className="flex items-center gap-2">
             <Tag className="w-4 h-4 text-emerald-600" />
-            <span className="font-bold uppercase">{appliedCoupon.code} (-{appliedCoupon.discountPercent}%)</span>
+            <span className="font-bold uppercase font-mono">
+              {appliedCoupon.code}{' '}
+              {appliedCoupon.isFreeShipping
+                ? '(Frete Grátis)'
+                : couponDiscount > 0
+                ? `(-${formatCurrency(couponDiscount)})`
+                : ''}
+            </span>
           </div>
           <button onClick={removeCoupon} className="text-red-600 hover:underline font-bold text-[10px]">
             Remover

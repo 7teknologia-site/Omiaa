@@ -7,6 +7,9 @@ import { ProductGrid } from './features/catalog/ProductGrid';
 import { ProductQuickView } from './features/catalog/ProductQuickView';
 import { CartDrawer } from './features/cart/CartDrawer';
 import { ToastContainer } from './components/ui/ToastContainer';
+import { ClientPopupManager } from './components/ui/ClientPopupManager';
+import { CookieConsentBanner } from './components/ui/CookieConsentBanner';
+import { LegalDocumentModal } from './components/ui/LegalDocumentModal';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { Sparkles } from 'lucide-react';
 
@@ -64,6 +67,9 @@ function MainAppContent() {
       {/* Drawers & Modals */}
       <CartDrawer />
       <ProductQuickView />
+      <ClientPopupManager />
+      <CookieConsentBanner />
+      <LegalDocumentModal />
       <ToastContainer />
 
       {/* Footer */}

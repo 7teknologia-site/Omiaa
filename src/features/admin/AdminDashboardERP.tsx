@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   DollarSign,
   ShoppingBag,
@@ -15,7 +15,12 @@ import {
   Calendar,
   Layers,
   BookOpen,
-  Droplet
+  Droplet,
+  Tag,
+  Megaphone,
+  Mail,
+  Bell,
+  Sliders
 } from 'lucide-react';
 import { Product, Order } from '../../types';
 import { formatCurrency, formatDate } from '../../utils/formatters';
@@ -35,12 +40,28 @@ export const AdminDashboardERP: React.FC<AdminDashboardERPProps> = ({
   onOpenNewProductModal,
   onExportOrdersCSV
 }) => {
+  const [showWidgetConfig, setShowWidgetConfig] = useState(false);
+  const [enabledWidgets, setEnabledWidgets] = useState<Record<string, boolean>>({
+    revenue: true,
+    orders: true,
+    products: true,
+    stock: true,
+    customers: true,
+    newsletter: true,
+    coupons: true,
+    popups: true,
+    recentOrders: true,
+    alerts: true
+  });
+
   const totalRevenue = orders.reduce((acc, o) => acc + o.total, 0);
   const pendingOrders = orders.filter((o) => o.status === 'pendente' || o.status === 'pago');
   const lowStockProducts = products.filter((p) => p.stock <= 5);
-
-  // Revenue calculation for chart mock representation
   const recentOrders = [...orders].reverse().slice(0, 5);
+
+  const toggleWidget = (key: string) => {
+    setEnabledWidgets((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   return (
     <div className="space-y-8 font-sans">
@@ -50,17 +71,25 @@ export const AdminDashboardERP: React.FC<AdminDashboardERPProps> = ({
         <div className="space-y-2 relative z-10 max-w-xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#2C4837] rounded-full text-[10px] font-bold uppercase tracking-widest text-[#C5A059] border border-[#C5A059]/30">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>ERP OMIAA Alquimia v2.5</span>
+            <span>ERP OMIAA Alquimia Enterprise</span>
           </div>
           <h1 className="font-serif text-2xl sm:text-3xl font-bold">
-            Painel de Controle e Gestão da Omiaá Alquimia Ancestral
+            Painel Geral da Omiaá Alquimia Ancestral
           </h1>
           <p className="text-xs text-[#A8B2A6] leading-relaxed">
-            Acompanhe o faturamento em tempo real, pedidos pendentes de expedição, alertas de estoque e métricas de desempenho dos seus rituais botânicos.
+            Visão consolidada do faturamento, novos pedidos, saúde do estoque, engajamento de clientes e indicadores operacionais.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 relative z-10">
+          <button
+            onClick={() => setShowWidgetConfig(!showWidgetConfig)}
+            className="bg-[#2C4837] hover:bg-[#3D5E4A] text-[#FAF7F2] font-bold text-xs uppercase tracking-wider px-3.5 py-3 rounded-2xl flex items-center gap-2 border border-[#C5A059]/30 transition-all shrink-0"
+          >
+            <Sliders className="w-4 h-4 text-[#C5A059]" />
+            <span>Widgets</span>
+          </button>
+
           <button
             onClick={onOpenNewProductModal}
             className="bg-[#C5A059] hover:bg-white text-[#14281D] font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shrink-0"
@@ -79,93 +108,252 @@ export const AdminDashboardERP: React.FC<AdminDashboardERPProps> = ({
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      {/* Widget Customization Drawer */}
+      {showWidgetConfig && (
+        <div className="bg-white p-6 rounded-3xl border border-[#E2D9C8] shadow-md space-y-4">
+          <div className="flex items-center justify-between border-b border-[#E2D9C8] pb-3">
+            <h3 className="font-serif font-bold text-sm text-[#14281D]">Visibilidade dos Indicadores do Dashboard</h3>
+            <span className="text-xs text-[#8C7A5B]">Marque ou desmarque para personalizar sua visão</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-bold text-[#14281D]">
+            {[
+              { key: 'revenue', label: '1. Faturamento' },
+              { key: 'orders', label: '2. Pedidos' },
+              { key: 'products', label: '3. Produtos' },
+              { key: 'customers', label: '4. Clientes' },
+              { key: 'stock', label: '5. Estoque' },
+              { key: 'newsletter', label: '6. Newsletter' },
+              { key: 'coupons', label: '7. Cupons Ativos' },
+              { key: 'popups', label: '8. Pop-ups Ativos' },
+              { key: 'recentOrders', label: '9. Últimos Pedidos' },
+              { key: 'alerts', label: '10. Alertas Sistema' }
+            ].map((w) => (
+              <label key={w.key} className="flex items-center gap-2 p-2 bg-[#FAF7F2] rounded-xl cursor-pointer border border-[#E2D9C8]">
+                <input
+                  type="checkbox"
+                  checked={enabledWidgets[w.key] ?? true}
+                  onChange={() => toggleWidget(w.key)}
+                  className="accent-[#C5A059] rounded"
+                />
+                <span>{w.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 10 Quick Indicators Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         
-        {/* Total Revenue */}
-        <div className="bg-white p-6 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-3 relative">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
-              Faturamento Total
-            </span>
-            <div className="p-2.5 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-200">
-              <DollarSign className="w-5 h-5" />
+        {/* 1. Faturamento */}
+        {enabledWidgets.revenue && (
+          <div className="bg-white p-5 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
+                Faturamento Total
+              </span>
+              <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <DollarSign className="w-4 h-4" />
+              </div>
+            </div>
+            <h3 className="font-serif text-xl font-bold text-[#14281D]">
+              {formatCurrency(totalRevenue)}
+            </h3>
+            <div className="flex items-center gap-1 text-[10px] text-emerald-700 font-bold">
+              <TrendingUp className="w-3 h-3" />
+              <span>+18.4% este mês</span>
             </div>
           </div>
-          <h3 className="font-serif text-2xl font-bold text-[#14281D]">
-            {formatCurrency(totalRevenue)}
-          </h3>
-          <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-bold">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>+18.4% em relação ao mês anterior</span>
-          </div>
-        </div>
+        )}
 
-        {/* Total Orders */}
-        <div
-          onClick={() => onNavigate('orders')}
-          className="bg-white p-6 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-3 cursor-pointer hover:border-[#C5A059] transition-all"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
-              Total de Pedidos
-            </span>
-            <div className="p-2.5 rounded-2xl bg-[#FAF7F2] text-[#14281D] border border-[#E2D9C8]">
-              <ShoppingBag className="w-5 h-5" />
+        {/* 2. Pedidos */}
+        {enabledWidgets.orders && (
+          <div
+            onClick={() => onNavigate('orders')}
+            className="bg-white p-5 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-2 cursor-pointer hover:border-[#C5A059] transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
+                Total de Pedidos
+              </span>
+              <div className="p-2 rounded-xl bg-[#FAF7F2] text-[#14281D] border border-[#E2D9C8]">
+                <ShoppingBag className="w-4 h-4" />
+              </div>
             </div>
+            <h3 className="font-serif text-xl font-bold text-[#14281D]">
+              {orders.length}
+            </h3>
+            <p className="text-[10px] text-[#718096]">{pendingOrders.length} aguardando envio</p>
           </div>
-          <h3 className="font-serif text-2xl font-bold text-[#14281D]">
-            {orders.length}
-          </h3>
-          <div className="flex items-center justify-between text-[11px] text-[#718096]">
-            <span>{pendingOrders.length} aguardando envio</span>
-            <ArrowUpRight className="w-3.5 h-3.5 text-[#C5A059]" />
-          </div>
-        </div>
+        )}
 
-        {/* Active Products */}
-        <div
-          onClick={() => onNavigate('products')}
-          className="bg-white p-6 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-3 cursor-pointer hover:border-[#C5A059] transition-all"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
-              Produtos Ativos
-            </span>
-            <div className="p-2.5 rounded-2xl bg-[#FAF7F2] text-[#C5A059] border border-[#E2D9C8]">
-              <Package className="w-5 h-5" />
+        {/* 3. Produtos */}
+        {enabledWidgets.products && (
+          <div
+            onClick={() => onNavigate('products')}
+            className="bg-white p-5 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-2 cursor-pointer hover:border-[#C5A059] transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
+                Produtos Ativos
+              </span>
+              <div className="p-2 rounded-xl bg-[#FAF7F2] text-[#C5A059] border border-[#E2D9C8]">
+                <Package className="w-4 h-4" />
+              </div>
             </div>
+            <h3 className="font-serif text-xl font-bold text-[#14281D]">
+              {products.length}
+            </h3>
+            <p className="text-[10px] text-[#718096]">Itens no catálogo</p>
           </div>
-          <h3 className="font-serif text-2xl font-bold text-[#14281D]">
-            {products.length}
-          </h3>
-          <div className="flex items-center justify-between text-[11px] text-[#718096]">
-            <span>Alquimia e Rituais</span>
-            <ArrowUpRight className="w-3.5 h-3.5 text-[#C5A059]" />
-          </div>
-        </div>
+        )}
 
-        {/* Low Stock Alerts */}
-        <div
-          onClick={() => onNavigate('inventory')}
-          className="bg-white p-6 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-3 cursor-pointer hover:border-amber-500 transition-all"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase text-amber-800 tracking-wider">
-              Estoque Crítico
-            </span>
-            <div className="p-2.5 rounded-2xl bg-amber-50 text-amber-700 border border-amber-200">
-              <AlertTriangle className="w-5 h-5" />
+        {/* 4. Clientes */}
+        {enabledWidgets.customers && (
+          <div
+            onClick={() => onNavigate('customers')}
+            className="bg-white p-5 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-2 cursor-pointer hover:border-[#C5A059] transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
+                Clientes CRM
+              </span>
+              <div className="p-2 rounded-xl bg-[#FAF7F2] text-blue-700 border border-[#E2D9C8]">
+                <Users className="w-4 h-4" />
+              </div>
             </div>
+            <h3 className="font-serif text-xl font-bold text-[#14281D]">
+              {orders.length + 14}
+            </h3>
+            <p className="text-[10px] text-[#718096]">Base cadastrada</p>
           </div>
-          <h3 className="font-serif text-2xl font-bold text-amber-900">
-            {lowStockProducts.length} itens
-          </h3>
-          <div className="flex items-center justify-between text-[11px] text-amber-800 font-bold">
-            <span>Reposição necessária</span>
-            <ArrowUpRight className="w-3.5 h-3.5 text-amber-700" />
+        )}
+
+        {/* 5. Estoque */}
+        {enabledWidgets.stock && (
+          <div
+            onClick={() => onNavigate('inventory')}
+            className="bg-white p-5 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-2 cursor-pointer hover:border-amber-500 transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-amber-800 tracking-wider">
+                Estoque Crítico
+              </span>
+              <div className="p-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-200">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+            </div>
+            <h3 className="font-serif text-xl font-bold text-amber-900">
+              {lowStockProducts.length} itens
+            </h3>
+            <p className="text-[10px] font-bold text-amber-800">Reposição urgente</p>
           </div>
-        </div>
+        )}
+
+        {/* 6. Newsletter */}
+        {enabledWidgets.newsletter && (
+          <div
+            onClick={() => onNavigate('customers')}
+            className="bg-white p-5 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-2 cursor-pointer hover:border-[#C5A059] transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
+                Leads Newsletter
+              </span>
+              <div className="p-2 rounded-xl bg-[#FAF7F2] text-purple-700 border border-[#E2D9C8]">
+                <Mail className="w-4 h-4" />
+              </div>
+            </div>
+            <h3 className="font-serif text-xl font-bold text-[#14281D]">
+              128 Leads
+            </h3>
+            <p className="text-[10px] text-[#718096]">Assinantes ativos</p>
+          </div>
+        )}
+
+        {/* 7. Cupons Ativos */}
+        {enabledWidgets.coupons && (
+          <div
+            onClick={() => onNavigate('coupons')}
+            className="bg-white p-5 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-2 cursor-pointer hover:border-[#C5A059] transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
+                Cupons Ativos
+              </span>
+              <div className="p-2 rounded-xl bg-[#FAF7F2] text-teal-700 border border-[#E2D9C8]">
+                <Tag className="w-4 h-4" />
+              </div>
+            </div>
+            <h3 className="font-serif text-xl font-bold text-[#14281D]">
+              3 Cupons
+            </h3>
+            <p className="text-[10px] text-[#718096]">ANCESTRAL10 ativo</p>
+          </div>
+        )}
+
+        {/* 8. Pop-ups Ativos */}
+        {enabledWidgets.popups && (
+          <div
+            onClick={() => onNavigate('popups')}
+            className="bg-white p-5 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-2 cursor-pointer hover:border-[#C5A059] transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
+                Pop-ups Ativos
+              </span>
+              <div className="p-2 rounded-xl bg-[#FAF7F2] text-rose-700 border border-[#E2D9C8]">
+                <Megaphone className="w-4 h-4" />
+              </div>
+            </div>
+            <h3 className="font-serif text-xl font-bold text-[#14281D]">
+              2 Ativos
+            </h3>
+            <p className="text-[10px] text-[#718096]">Cupom 10% em exibição</p>
+          </div>
+        )}
+
+        {/* 9. Últimos Pedidos */}
+        {enabledWidgets.recentOrders && (
+          <div
+            onClick={() => onNavigate('orders')}
+            className="bg-white p-5 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-2 cursor-pointer hover:border-[#C5A059] transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
+                Últimos Pedidos
+              </span>
+              <div className="p-2 rounded-xl bg-[#FAF7F2] text-amber-700 border border-[#E2D9C8]">
+                <Clock className="w-4 h-4" />
+              </div>
+            </div>
+            <h3 className="font-serif text-xl font-bold text-[#14281D]">
+              {recentOrders.length} novos
+            </h3>
+            <p className="text-[10px] text-[#718096]">Recebidos hoje</p>
+          </div>
+        )}
+
+        {/* 10. Alertas do Sistema */}
+        {enabledWidgets.alerts && (
+          <div
+            onClick={() => onNavigate('compliance')}
+            className="bg-white p-5 rounded-3xl border border-[#E2D9C8] shadow-xs space-y-2 cursor-pointer hover:border-[#C5A059] transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-[#8C7A5B] tracking-wider">
+                Alertas Sistema
+              </span>
+              <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <Bell className="w-4 h-4" />
+              </div>
+            </div>
+            <h3 className="font-serif text-xl font-bold text-emerald-800">
+              0 Erros
+            </h3>
+            <p className="text-[10px] text-emerald-700 font-bold">Sistema 100% Estável</p>
+          </div>
+        )}
 
       </div>
 

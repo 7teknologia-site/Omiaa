@@ -49,10 +49,14 @@ export type SettingsTabId =
   | 'appearance'
   | 'system';
 
-export const AdminSettings: React.FC = () => {
+interface AdminSettingsProps {
+  initialTab?: SettingsTabId;
+}
+
+export const AdminSettings: React.FC<AdminSettingsProps> = ({ initialTab = 'brand' }) => {
   const { storeSettings, updateStoreSettings, resetStoreSettings, importStoreSettings, showToast } = useShop();
 
-  const [activeTab, setActiveTab] = useState<SettingsTabId>('brand');
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
   const [formData, setFormData] = useState<StoreSettings>(storeSettings);
   const [isSaved, setIsSaved] = useState(false);
   const [systemLogs, setSystemLogs] = useState<Array<{ id: string; time: string; type: string; msg: string }>>([

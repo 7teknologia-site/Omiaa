@@ -131,13 +131,73 @@ export const Footer: React.FC = () => {
 
         </div>
 
-        {/* Bottom Bar */}
-        <div className="border-t border-[#2C4837] pt-8 flex flex-col sm:flex-row items-center justify-between text-[11px] text-[#8C7A5B] gap-4">
+        {/* Bottom Legal Links Bar */}
+        <div className="border-t border-[#2C4837] pt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[11px] text-[#A8B2A6]">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('omiaa_open_legal_document', { detail: { documentId: 'privacy-policy' } }))}
+            className="hover:text-[#C5A059] transition-colors"
+          >
+            Política de Privacidade
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('omiaa_open_legal_document', { detail: { documentId: 'cookie-policy' } }))}
+            className="hover:text-[#C5A059] transition-colors"
+          >
+            Política de Cookies
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('omiaa_open_legal_document', { detail: { documentId: 'terms-of-use' } }))}
+            className="hover:text-[#C5A059] transition-colors"
+          >
+            Termos de Uso
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('omiaa_open_legal_document', { detail: { documentId: 'shipping-policy' } }))}
+            className="hover:text-[#C5A059] transition-colors"
+          >
+            Política de Entrega
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('omiaa_open_legal_document', { detail: { documentId: 'returns-policy' } }))}
+            className="hover:text-[#C5A059] transition-colors"
+          >
+            Trocas e Devoluções
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('omiaa_open_legal_document', { detail: { documentId: 'refund-policy' } }))}
+            className="hover:text-[#C5A059] transition-colors"
+          >
+            Política de Reembolso
+          </button>
+        </div>
+
+        {/* Bottom Copyright Bar */}
+        <div className="border-t border-[#2C4837] pt-6 flex flex-col sm:flex-row items-center justify-between text-[11px] text-[#8C7A5B] gap-4">
           <div>
             <p>{copyright}</p>
             <p className="text-[10px] text-[#A8B2A6] mt-0.5">{cnpj}</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('omiaa_open_privacy_settings'))}
+              className="inline-flex items-center gap-1.5 text-[#C5A059] hover:text-[#E8D4A8] transition-colors font-medium underline underline-offset-2"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Preferências de Privacidade (LGPD)
+            </button>
+            <span>•</span>
             <span>Mercado Pago SSL 256-Bit</span>
             <span>•</span>
             <span>Melhor Envio Correios</span>
