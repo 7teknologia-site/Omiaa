@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Package,
   Search,
@@ -32,9 +32,16 @@ export const AdminProductsERP: React.FC<AdminProductsERPProps> = ({
   isOpenCreateModalFromDash,
   onCloseCreateModalFromDash
 }) => {
-  const { addNewProduct, showToast } = useShop();
+  const { addNewProduct, updateExistingProduct, deleteExistingProduct, products: shopProducts, showToast } = useShop();
 
-  const [productsList, setProductsList] = useState<Product[]>(initialProducts);
+  const [productsList, setProductsList] = useState<Product[]>(shopProducts.length ? shopProducts : initialProducts);
+
+  useEffect(() => {
+    if (shopProducts && shopProducts.length > 0) {
+      setProductsList(shopProducts);
+    }
+  }, [shopProducts]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('todos');
   const [stockFilter, setStockFilter] = useState<'todos' | 'em_estoque' | 'baixo' | 'sem_estoque'>('todos');
@@ -122,34 +129,50 @@ export const AdminProductsERP: React.FC<AdminProductsERPProps> = ({
     setIsModalOpen(true);
   };
 
+  const parsePriceInput = (val: any): number => {
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+    if (!val) return 0;
+    const str = String(val).replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.');
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+  };
+
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.price) {
+    if (!formData.name || formData.price === undefined || formData.price === null || String(formData.price).trim() === '') {
       alert('Preencha o nome e o preço do produto.');
       return;
     }
 
+    const priceVal = parsePriceInput(formData.price);
+    const origPriceVal = formData.originalPrice ? parsePriceInput(formData.originalPrice) : priceVal;
+
     if (editingProduct) {
-      // Update local product list
-      setProductsList((prev) =>
-        prev.map((item) => (item.id === editingProduct.id ? ({ ...item, ...formData } as Product) : item))
-      );
-      showToast('Produto Atualizado', `O produto ${formData.name} foi alterado com sucesso.`, 'success');
+      // Update existing product in Supabase and ShopContext
+      const updated = await updateExistingProduct(editingProduct.id, {
+        ...formData,
+        price: priceVal,
+        originalPrice: origPriceVal,
+        stock: Number(formData.stock || 0)
+      });
+      if (updated) {
+        setIsModalOpen(false);
+        if (onCloseCreateModalFromDash) onCloseCreateModalFromDash();
+      }
     } else {
-      // Create new
-      const newProd: Product = {
-        id: `prod-${Date.now()}`,
-        slug: (formData.name || 'produto').toLowerCase().replace(/\s+/g, '-'),
+      // Create new product in Supabase and ShopContext
+      const newProdData: Omit<Product, 'id' | 'createdAt'> = {
+        slug: (formData.name || 'produto').toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-'),
         name: formData.name || 'Novo Produto',
         subtitle: formData.subtitle || '',
         category: (formData.category as CategoryId) || 'elixires',
-        price: Number(formData.price),
-        originalPrice: Number(formData.originalPrice || formData.price),
+        price: priceVal,
+        originalPrice: origPriceVal,
         rating: 5.0,
         reviewsCount: 1,
         stock: Number(formData.stock || 10),
         featured: Boolean(formData.featured),
-        badges: formData.badges || ['Novo'],
+        badges: formData.badges && formData.badges.length ? formData.badges : ['Novo'],
         volumeOrWeight: formData.volumeOrWeight || '50ml',
         shortDescription: formData.shortDescription || '',
         fullDescription: formData.fullDescription || '',
@@ -157,23 +180,20 @@ export const AdminProductsERP: React.FC<AdminProductsERPProps> = ({
         ancestralOrigin: formData.ancestralOrigin || 'Tradição Alquímica',
         usageInstructions: formData.usageInstructions || 'Uso diário',
         images: formData.images && formData.images.length ? formData.images : ['https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?q=80&w=800&auto=format&fit=crop'],
-        sku: formData.sku || `OMIA-${Math.floor(1000 + Math.random() * 9000)}`,
-        createdAt: new Date().toISOString().slice(0, 10)
+        sku: formData.sku || `OMIA-${Math.floor(1000 + Math.random() * 9000)}`
       };
 
-      await addNewProduct(newProd);
-      setProductsList((prev) => [newProd, ...prev]);
-      showToast('Produto Cadastrado', `O produto ${newProd.name} foi adicionado à Omiaá Alquimia Ancestral.`, 'success');
+      const created = await addNewProduct(newProdData);
+      if (created) {
+        setIsModalOpen(false);
+        if (onCloseCreateModalFromDash) onCloseCreateModalFromDash();
+      }
     }
-
-    setIsModalOpen(false);
-    if (onCloseCreateModalFromDash) onCloseCreateModalFromDash();
   };
 
-  const handleDeleteProduct = (id: string) => {
+  const handleDeleteProduct = async (id: string) => {
     if (confirm('Tem certeza que deseja remover este produto da loja?')) {
-      setProductsList((prev) => prev.filter((p) => p.id !== id));
-      showToast('Produto Removido', 'Item excluído do catálogo local.', 'info');
+      await deleteExistingProduct(id);
     }
   };
 

@@ -9,6 +9,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
+import { useCheckout } from '../../hooks/useCheckout';
 
 interface OrderErrorViewProps {
   errorMessage?: string;
@@ -16,6 +17,8 @@ interface OrderErrorViewProps {
 
 export const OrderErrorView: React.FC<OrderErrorViewProps> = ({ errorMessage }) => {
   const { setViewMode } = useShop();
+  const checkout = useCheckout();
+  const displayMessage = errorMessage || checkout.lastPaymentError;
 
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 py-12 space-y-8 font-sans">
@@ -32,7 +35,7 @@ export const OrderErrorView: React.FC<OrderErrorViewProps> = ({ errorMessage }) 
           </span>
           <h1 className="font-serif text-2xl sm:text-3xl font-bold">Falha no Pagamento</h1>
           <p className="text-xs text-red-100 max-w-md mx-auto">
-            {errorMessage || 'Sua tentativa de pagamento via Mercado Pago não pôde ser processada neste momento.'}
+            {displayMessage || 'Sua tentativa de pagamento via Mercado Pago não pôde ser processada neste momento.'}
           </p>
         </div>
       </div>

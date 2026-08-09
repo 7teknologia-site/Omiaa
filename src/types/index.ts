@@ -80,6 +80,7 @@ export interface Order {
   subtotal: number;
   shippingFee: number;
   discount: number;
+  couponCode?: string;
   total: number;
   status: 'pendente' | 'pago' | 'em_preparo' | 'enviado' | 'entregue' | 'cancelado';
   paymentMethod: 'pix' | 'credit_card' | 'boleto';
@@ -93,6 +94,9 @@ export interface Order {
   pixPayload?: string;
   boletoBarcode?: string;
   mercadoPagoPaymentId?: string;
+  infinitepayUrl?: string;
+  transactionNsu?: string;
+  receiptUrl?: string;
 }
 
 export interface CustomerProfile {
@@ -115,7 +119,7 @@ export interface FilterState {
   selectedBadge?: string;
 }
 
-export type ViewMode = 'catalog' | 'product-detail' | 'checkout' | 'account' | 'admin' | 'order-success' | 'order-error' | 'blog' | 'botanical' | 'fragrance-atelier';
+export type ViewMode = 'catalog' | 'product-detail' | 'checkout' | 'account' | 'admin' | 'order-success' | 'order-error' | 'blog' | 'botanical' | 'fragrance-atelier' | 'obrigado';
 
 export interface Toast {
   id: string;
@@ -193,7 +197,7 @@ export type FragranceStatus =
   | 'envasado'
   | 'enviado'
   | 'concluido'
-  | 'encomedado'
+  | 'encomendado'
   | 'rascunho';
 
 export interface FragranceQuestionnaire {

@@ -28,6 +28,8 @@ import {
   fetchCategories,
   fetchProducts,
   createProduct,
+  updateProduct,
+  deleteProduct,
   validateCoupon,
   createOrderWithItems,
   fetchCustomerOrders,
@@ -48,6 +50,9 @@ import {
   getSavedUsageLogs,
   recordCouponUsage
 } from '../utils/marketingStorage';
+import { AuthProvider, useAuth, GUEST_CUSTOMER, MOCK_CUSTOMER } from './AuthContext';
+
+export { AuthProvider, useAuth, GUEST_CUSTOMER, MOCK_CUSTOMER };
 
 interface ShopContextType {
   storeSettings: StoreSettings;
@@ -106,7 +111,9 @@ interface ShopContextType {
   toasts: Toast[];
   showToast: (title: string, desc?: string, type?: 'success' | 'info' | 'alert') => void;
 
-  addNewProduct: (productData: Omit<Product, 'id' | 'createdAt'>) => Promise<void>;
+  addNewProduct: (productData: Omit<Product, 'id' | 'createdAt'>) => Promise<Product | null>;
+  updateExistingProduct: (id: string, productData: Partial<Product>) => Promise<Product | null>;
+  deleteExistingProduct: (id: string) => Promise<boolean>;
   
   // Reviews state & methods
   reviews: Review[];
@@ -124,7 +131,18 @@ interface ShopContextType {
 
 const ShopContext = createContext<ShopContextType | undefined>(undefined);
 
-export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const InnerShopProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { authSession, user: authUser, setUser: setAuthUser, signOutAuth } = useAuth();
+  const user = authUser || GUEST_CUSTOMER;
+
+  const setUser = useCallback((action: React.SetStateAction<CustomerProfile>) => {
+    if (typeof action === 'function') {
+      setAuthUser((prev) => action(prev || GUEST_CUSTOMER));
+    } else {
+      setAuthUser(action);
+    }
+  }, [setAuthUser]);
+
   // Store Settings state
   const [storeSettings, setStoreSettings] = useState<StoreSettings>(getSavedStoreSettings);
 
@@ -185,26 +203,6 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [quickViewProductId, setQuickViewProductId] = useState<string | null>(null);
 
-  const [user, setUser] = useState<CustomerProfile>({
-    name: 'Iniciado Alquímico',
-    email: 'cliente@omiaa.com.br',
-    phone: '(11) 99887-6655',
-    cpf: '123.456.789-00',
-    loyaltyPoints: 150,
-    tier: 'Iniciado',
-    addresses: [
-      {
-        street: 'Alameda das Camomilas',
-        number: '108',
-        complement: 'Apto 42 - Bloco A',
-        neighborhood: 'Jardim Botânico',
-        city: 'São Paulo',
-        state: 'SP',
-        cep: '01420-001'
-      }
-    ]
-  });
-
   const [orders, setOrders] = useState<Order[]>([]);
   const [latestOrder, setLatestOrder] = useState<Order | null>(null);
 
@@ -245,7 +243,6 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [reviews]);
 
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [authSession, setAuthSession] = useState<any>(null);
 
   // Load initial Categories and Products from Supabase
   const loadDataFromSupabase = useCallback(async () => {
@@ -271,32 +268,15 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => clearTimeout(timer);
   }, [loadDataFromSupabase]);
 
-  // Auth session listener
+  // Sync customer orders when authenticated session is active
   useEffect(() => {
     if (!isSupabaseConfigured) return;
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setAuthSession(session);
-      if (session?.user) {
-        fetchCustomerProfile(session.user.id).then((prof) => {
-          if (prof) setUser(prof);
-        });
-        fetchCustomerOrders().then((ordList) => setOrders(ordList));
-      }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthSession(session);
-      if (session?.user) {
-        fetchCustomerProfile(session.user.id).then((prof) => {
-          if (prof) setUser(prof);
-        });
-        fetchCustomerOrders().then((ordList) => setOrders(ordList));
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+    if (authSession?.user) {
+      fetchCustomerOrders().then((ordList) => setOrders(ordList));
+    } else {
+      setOrders([]);
+    }
+  }, [authSession]);
 
   // Persist local cart, wishlist, coupon, and CEP
   useEffect(() => {
@@ -542,8 +522,9 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subtotal: cartSubtotal,
       shippingFee: finalShipping,
       discount: discountAmount,
+      couponCode: appliedCoupon?.code,
       total: extraData?.total !== undefined ? extraData.total : cartTotal,
-      status: paymentMethod === 'pix' ? 'pendente' : 'pago',
+      status: 'pendente',
       paymentMethod,
       deliveryAddress: address,
       trackingCode: `BR-ALQ-${Math.floor(1000000 + Math.random() * 9000000)}`,
@@ -557,7 +538,14 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
       mercadoPagoPaymentId: extraData?.mercadoPagoPaymentId
     };
 
-    const created = await createOrderWithItems(rawOrder, cart);
+    let created: Order | null = null;
+    try {
+      created = await createOrderWithItems(rawOrder, cart);
+    } catch (dbErr: any) {
+      if (isSupabaseConfigured) {
+        throw dbErr;
+      }
+    }
 
     const finalOrder: Order = created || {
       ...rawOrder,
@@ -590,29 +578,48 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [cart, cartSubtotal, finalShipping, discountAmount, cartTotal, appliedCoupon, clearCart, showToast, user]);
 
   // Admin action: Add Product to Supabase
-  const addNewProduct = useCallback(async (productData: Omit<Product, 'id' | 'createdAt'>) => {
+  const addNewProduct = useCallback(async (productData: Omit<Product, 'id' | 'createdAt'>): Promise<Product | null> => {
     const created = await createProduct(productData);
     if (created) {
-      setProducts((prev) => [created, ...prev]);
-      showToast('Produto Adicionado!', `${created.name} cadastrado no Supabase.`, 'success');
+      setProducts((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
+      showToast('Produto Adicionado!', `${created.name} cadastrado com sucesso.`, 'success');
+      return created;
     } else {
-      const localProd: Product = {
-        ...productData,
-        id: `prod-${Date.now()}`,
-        createdAt: new Date().toISOString().split('T')[0]
-      };
-      setProducts((prev) => [localProd, ...prev]);
-      showToast('Produto Adicionado!', `${localProd.name} cadastrado na Omiaá Alquimia Ancestral.`, 'success');
+      showToast('Erro ao Salvar Produto', 'Não foi possível salvar o produto no banco de dados.', 'alert');
+      return null;
     }
   }, [showToast]);
 
-  const signOutAuth = useCallback(async () => {
-    if (isSupabaseConfigured) {
-      await supabase.auth.signOut();
+  // Admin action: Update Product in Supabase
+  const updateExistingProduct = useCallback(async (id: string, productData: Partial<Product>): Promise<Product | null> => {
+    const updated = await updateProduct(id, productData);
+    if (updated) {
+      setProducts((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      showToast('Produto Atualizado!', `${updated.name} salvo com sucesso.`, 'success');
+      return updated;
+    } else {
+      showToast('Erro ao Atualizar Produto', 'Não foi possível salvar as alterações no banco de dados.', 'alert');
+      return null;
     }
-    setAuthSession(null);
-    showToast('Sessão encerrada', 'Você saiu da sua conta.', 'info');
   }, [showToast]);
+
+  // Admin action: Delete Product from Supabase
+  const deleteExistingProduct = useCallback(async (id: string): Promise<boolean> => {
+    const success = await deleteProduct(id);
+    if (success) {
+      setProducts((prev) => prev.filter((p) => p.id !== id));
+      showToast('Produto Removido', 'Item excluído do catálogo com sucesso.', 'info');
+      return true;
+    } else {
+      showToast('Erro ao Excluir Produto', 'Não foi possível remover o produto do banco de dados.', 'alert');
+      return false;
+    }
+  }, [showToast]);
+
+  const handleSignOutAuth = useCallback(async () => {
+    await signOutAuth();
+    showToast('Sessão encerrada', 'Você saiu da sua conta.', 'info');
+  }, [signOutAuth, showToast]);
 
   // Memoized context value
   const contextValue = useMemo(() => ({
@@ -660,6 +667,8 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     toasts,
     showToast,
     addNewProduct,
+    updateExistingProduct,
+    deleteExistingProduct,
     reviews,
     addReview,
     voteReviewHelpful,
@@ -667,7 +676,7 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     deleteReview,
     replyToReview,
     authSession,
-    signOutAuth,
+    signOutAuth: handleSignOutAuth,
     refreshCatalogData: loadDataFromSupabase
   }), [
     storeSettings,
@@ -706,6 +715,8 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     toasts,
     showToast,
     addNewProduct,
+    updateExistingProduct,
+    deleteExistingProduct,
     reviews,
     addReview,
     voteReviewHelpful,
@@ -713,7 +724,7 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     deleteReview,
     replyToReview,
     authSession,
-    signOutAuth,
+    handleSignOutAuth,
     loadDataFromSupabase
   ]);
 
@@ -723,6 +734,12 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     </ShopContext.Provider>
   );
 };
+
+export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <AuthProvider>
+    <InnerShopProvider>{children}</InnerShopProvider>
+  </AuthProvider>
+);
 
 export const useShop = () => {
   const context = useContext(ShopContext);

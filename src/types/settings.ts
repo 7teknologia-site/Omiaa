@@ -107,10 +107,14 @@ export interface SeoSettings {
 }
 
 export interface IntegrationsSettings {
+  activeGateway?: 'infinitepay' | 'mercadopago';
+  infinitePayHandle?: string;
+  infinitePayEnabled?: boolean;
   mercadoPagoAccessToken: string;
   mercadoPagoPublicKey: string;
   mercadoPagoWebhookSecret: string;
   mercadoPagoEnvironment: 'simulation' | 'sandbox' | 'production';
+  mercadoPagoEnabled?: boolean;
   pixKey: string;
   pixMerchantName: string;
   pixCity: string;

@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+export { isSupabaseConfigured };
 import { swrFetch, invalidateCache } from './cacheService';
 import {
   Product,
@@ -435,30 +436,61 @@ export async function fetchProducts(filters?: FilterState): Promise<Product[]> {
   );
 }
 
+function parseClientPrice(val: any): number {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (!val) return 0;
+  const str = String(val).replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.');
+  const num = parseFloat(str);
+  return isNaN(num) ? 0 : num;
+}
+
 export async function createProduct(productData: Omit<Product, 'id' | 'createdAt'>): Promise<Product | null> {
+  // 1. Try server API endpoint first for reliable admin bypass / persistence
+  try {
+    const res = await fetch('/api/admin/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(productData)
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.product) {
+        invalidateCache('products');
+        return json.product;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('Backend /api/admin/products error, trying direct Supabase client call:', apiErr);
+  }
+
+  // 2. Direct Supabase client fallback
   if (!isSupabaseConfigured) return null;
 
   try {
+    const categoryId = (productData.category === 'todos' || !productData.category) ? 'elixires' : productData.category;
+    const price = parseClientPrice(productData.price);
+    const stock = Math.max(0, Number(productData.stock) || 0);
+
     const payload = {
-      slug: productData.slug || productData.name.toLowerCase().replace(/\s+/g, '-'),
+      slug: productData.slug || productData.name.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-'),
       name: productData.name,
-      subtitle: productData.subtitle,
-      category_id: productData.category,
-      price: productData.price,
-      original_price: productData.originalPrice || null,
-      rating: productData.rating || 5.0,
-      reviews_count: productData.reviewsCount || 1,
-      stock: productData.stock,
+      subtitle: productData.subtitle || '',
+      category_id: categoryId,
+      price,
+      original_price: productData.originalPrice ? parseClientPrice(productData.originalPrice) : null,
+      rating: Number(productData.rating) || 5.0,
+      reviews_count: Number(productData.reviewsCount) || 1,
+      stock,
       featured: Boolean(productData.featured),
-      badges: productData.badges || [],
-      volume_or_weight: productData.volumeOrWeight,
-      short_description: productData.shortDescription,
-      full_description: productData.fullDescription,
-      ingredients: productData.ingredients || [],
-      ancestral_origin: productData.ancestralOrigin,
-      usage_instructions: productData.usageInstructions,
-      images: productData.images || [],
-      sku: productData.sku || `OMIA-${Math.floor(100 + Math.random() * 900)}`
+      badges: Array.isArray(productData.badges) ? productData.badges : ['Novo'],
+      volume_or_weight: productData.volumeOrWeight || '50ml',
+      short_description: productData.shortDescription || '',
+      full_description: productData.fullDescription || '',
+      ingredients: Array.isArray(productData.ingredients) ? productData.ingredients : ['Ervas'],
+      ancestral_origin: productData.ancestralOrigin || 'Tradição Alquímica',
+      usage_instructions: productData.usageInstructions || 'Uso diário',
+      images: Array.isArray(productData.images) && productData.images.length ? productData.images : ['https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?q=80&w=800&auto=format&fit=crop'],
+      sku: productData.sku || `OMIA-${Math.floor(1000 + Math.random() * 9000)}`
     };
 
     const { data, error } = await supabase
@@ -472,13 +504,114 @@ export async function createProduct(productData: Omit<Product, 'id' | 'createdAt
       return null;
     }
 
-    // Invalidate products cache so fresh data is fetched on next render
     invalidateCache('products');
-
     return mapProductRow(data);
   } catch (err) {
     console.error('createProduct exception:', err);
     return null;
+  }
+}
+
+export async function updateProduct(id: string, productData: Partial<Product>): Promise<Product | null> {
+  // 1. Try server API endpoint first
+  try {
+    const res = await fetch(`/api/admin/products/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(productData)
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.product) {
+        invalidateCache('products');
+        return json.product;
+      }
+    }
+  } catch (apiErr) {
+    console.warn(`Backend /api/admin/products/${id} error, trying direct Supabase client call:`, apiErr);
+  }
+
+  // 2. Direct Supabase client fallback
+  if (!isSupabaseConfigured) return null;
+
+  try {
+    const payload: any = {};
+    if (productData.name !== undefined) payload.name = productData.name;
+    if (productData.slug !== undefined) payload.slug = productData.slug;
+    if (productData.subtitle !== undefined) payload.subtitle = productData.subtitle;
+    if (productData.category !== undefined) payload.category_id = (productData.category === 'todos' || !productData.category) ? 'elixires' : productData.category;
+    if (productData.price !== undefined) payload.price = parseClientPrice(productData.price);
+    if (productData.originalPrice !== undefined) payload.original_price = productData.originalPrice ? parseClientPrice(productData.originalPrice) : null;
+    if (productData.rating !== undefined) payload.rating = Number(productData.rating);
+    if (productData.reviewsCount !== undefined) payload.reviews_count = Number(productData.reviewsCount);
+    if (productData.stock !== undefined) payload.stock = Math.max(0, Number(productData.stock) || 0);
+    if (productData.featured !== undefined) payload.featured = Boolean(productData.featured);
+    if (productData.badges !== undefined) payload.badges = Array.isArray(productData.badges) ? productData.badges : [];
+    if (productData.volumeOrWeight !== undefined) payload.volume_or_weight = productData.volumeOrWeight;
+    if (productData.shortDescription !== undefined) payload.short_description = productData.shortDescription;
+    if (productData.fullDescription !== undefined) payload.full_description = productData.fullDescription;
+    if (productData.ingredients !== undefined) payload.ingredients = Array.isArray(productData.ingredients) ? productData.ingredients : [];
+    if (productData.ancestralOrigin !== undefined) payload.ancestral_origin = productData.ancestralOrigin;
+    if (productData.usageInstructions !== undefined) payload.usage_instructions = productData.usageInstructions;
+    if (productData.images !== undefined) payload.images = Array.isArray(productData.images) ? productData.images : [];
+    if (productData.sku !== undefined) payload.sku = productData.sku;
+
+    const { data, error } = await supabase
+      .from('products')
+      .update(payload)
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error || !data) {
+      console.error('updateProduct error:', error);
+      return null;
+    }
+
+    invalidateCache('products');
+    return mapProductRow(data);
+  } catch (err) {
+    console.error('updateProduct exception:', err);
+    return null;
+  }
+}
+
+export async function deleteProduct(id: string): Promise<boolean> {
+  // 1. Try server API endpoint first
+  try {
+    const res = await fetch(`/api/admin/products/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success) {
+        invalidateCache('products');
+        return true;
+      }
+    }
+  } catch (apiErr) {
+    console.warn(`Backend DELETE /api/admin/products/${id} error, trying direct Supabase client call:`, apiErr);
+  }
+
+  // 2. Direct Supabase client fallback
+  if (!isSupabaseConfigured) return false;
+
+  try {
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('deleteProduct error:', error);
+      return false;
+    }
+
+    invalidateCache('products');
+    return true;
+  } catch (err) {
+    console.error('deleteProduct exception:', err);
+    return false;
   }
 }
 
@@ -506,20 +639,19 @@ export async function validateCoupon(code: string): Promise<Coupon | null> {
   }
 
   try {
-    const { data, error } = await supabase
-      .from('coupons')
-      .select('*')
-      .eq('code', normalized)
-      .eq('active', true)
-      .single();
+    const { data, error } = await supabase.rpc('validate_coupon', { p_code: normalized });
 
     if (!error && data) {
-      return {
-        id: data.id,
-        code: data.code,
-        discountPercent: data.discount_percent,
-        active: data.active
-      };
+      const couponRecord = Array.isArray(data) ? data[0] : data;
+      if (couponRecord) {
+        const discount = couponRecord.discount_percent ?? couponRecord.discountPercent ?? couponRecord.discount_value ?? 0;
+        return {
+          id: couponRecord.id || `coup-${normalized}`,
+          code: couponRecord.code || normalized,
+          discountPercent: Number(discount),
+          active: couponRecord.active ?? true
+        };
+      }
     }
 
     // Fallback to predefined coupons if database doesn't have the specific record
@@ -548,15 +680,158 @@ export async function createOrderWithItems(
   if (!isSupabaseConfigured) return null;
 
   try {
+    // 1. Verify authenticated active session
+    const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
+    if (sessionErr || !session || !session.user) {
+      console.error('createOrderWithItems error: User not authenticated.');
+      throw new Error('Para finalizar sua compra, entre na sua conta ou cadastre-se.');
+    }
+
+    // 2. Validate input items and quantities
+    if (!items || items.length === 0) {
+      throw new Error('Seu carrinho está vazio.');
+    }
+
+    const sanitizedItems = items.map((item) => ({
+      ...item,
+      quantity: Math.max(1, Math.floor(Number(item.quantity) || 1))
+    }));
+
+    // 3. Fetch official products from DB (Supabase) for server-side price & stock verification
+    const productIds = sanitizedItems
+      .map((i) => i.product?.id)
+      .filter((id) => id && typeof id === 'string' && id.length > 0);
+
+    let dbProductMap = new Map<string, any>();
+    if (productIds.length > 0) {
+      const { data: dbProducts, error: dbProdErr } = await supabase
+        .from('products')
+        .select('*')
+        .in('id', productIds);
+
+      if (!dbProdErr && dbProducts) {
+        dbProductMap = new Map(dbProducts.map((p: any) => [p.id, p]));
+      }
+    }
+
+    // 4. Calculate SERVER-SIDE OFFICIAL subtotal & verify stock availability
+    let officialSubtotal = 0;
+    const verifiedOrderItems = sanitizedItems.map((item) => {
+      const dbProd = dbProductMap.get(item.product.id);
+      let officialUnitPrice = Number(item.product.price || 0);
+
+      if (dbProd) {
+        officialUnitPrice = Number(dbProd.price || 0);
+        // Verify stock
+        if (dbProd.stock < item.quantity) {
+          throw new Error(`Estoque insuficiente para o produto "${dbProd.name}". Estoque disponível: ${dbProd.stock}.`);
+        }
+      }
+
+      const itemSubtotal = Math.round(officialUnitPrice * item.quantity * 100) / 100;
+      officialSubtotal += itemSubtotal;
+
+      return {
+        product_id: dbProd ? dbProd.id : (item.product.id.length > 30 ? item.product.id : null),
+        product_snapshot: {
+          ...item.product,
+          price: officialUnitPrice
+        },
+        quantity: item.quantity,
+        unit_price: officialUnitPrice,
+        selected_option: item.selectedOption || null
+      };
+    });
+
+    officialSubtotal = Math.round(officialSubtotal * 100) / 100;
+
+    // 5. Server-side coupon re-validation and discount calculation
+    let officialDiscount = 0;
+    const couponToValidate = orderData.couponCode;
+    if (couponToValidate) {
+      const validCoup = await validateCoupon(couponToValidate);
+      if (validCoup && validCoup.active) {
+        officialDiscount += Math.round((officialSubtotal * validCoup.discountPercent) / 100 * 100) / 100;
+      }
+    }
+
+    // Server-side PIX 5% discount validation
+    if (orderData.paymentMethod === 'pix') {
+      const pixDisc = Math.round(officialSubtotal * 0.05 * 100) / 100;
+      officialDiscount += pixDisc;
+    }
+
+    officialDiscount = Math.min(officialSubtotal, Math.round(officialDiscount * 100) / 100);
+
+    // 6. Server-side shipping fee calculation
+    let officialShippingFee = 14.90; // Default standard shipping
+    if (orderData.couponCode === 'FRETEGRATIS' || officialSubtotal >= 250) {
+      officialShippingFee = Number(orderData.shippingFee) === 25 ? 25 : 0; // Express option preserves R$25, else FREE
+    } else if (Number(orderData.shippingFee) === 25) {
+      officialShippingFee = 25; // Express option
+    }
+
+    // 7. Calculate SERVER-SIDE OFFICIAL TOTAL
+    const officialTotal = Math.max(0, Math.round((officialSubtotal - officialDiscount + officialShippingFee) * 100) / 100);
+
+    // Log price tampering prevention warning if client values differed
+    if (
+      Math.abs(Number(orderData.subtotal || 0) - officialSubtotal) > 0.01 ||
+      Math.abs(Number(orderData.total || 0) - officialTotal) > 0.01
+    ) {
+      console.warn(
+        `[PRICE TAMPERING BLOCKED] Cliente enviou total R$ ${orderData.total} (subtotal R$ ${orderData.subtotal}), mas o servidor calculou total oficial R$ ${officialTotal} (subtotal R$ ${officialSubtotal}). Aplicando valores oficiais do servidor.`
+      );
+    }
+
+    // 8. Obtain customer profile linked to auth_user_id
+    let activeCustomer = null;
+    const { data: existingCustomer } = await supabase
+      .from('customers')
+      .select('id, email, name')
+      .eq('auth_user_id', session.user.id)
+      .maybeSingle();
+
+    if (existingCustomer) {
+      activeCustomer = existingCustomer;
+    } else {
+      // Attempt upsert of customer profile
+      const profilePayload: CustomerProfile = {
+        name: orderData.customerName || session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Cliente Omiaá',
+        email: session.user.email || '',
+        phone: orderData.customerPhone || '',
+        cpf: orderData.customerCpf || '',
+        addresses: orderData.deliveryAddress ? [orderData.deliveryAddress] : [],
+        loyaltyPoints: 0,
+        tier: 'Neófito'
+      };
+
+      const upserted = await upsertCustomerProfile(profilePayload, session.user.id);
+      if (upserted) {
+        const { data: newlyCreated } = await supabase
+          .from('customers')
+          .select('id, email, name')
+          .eq('auth_user_id', session.user.id)
+          .maybeSingle();
+        activeCustomer = newlyCreated;
+      }
+    }
+
+    if (!activeCustomer) {
+      console.error('createOrderWithItems error: Valid customer profile missing.');
+      throw new Error('Não foi possível carregar seu perfil. Atualize seus dados antes de continuar.');
+    }
+
+    // 9. Create order with OFFICIAL SERVER-CALCULATED VALUES ONLY
     const orderPayload = {
       code: orderData.code,
-      customer_id: customerId || null,
-      customer_email: orderData.deliveryAddress?.street ? 'cliente@emiaa.com.br' : 'cliente@emiaa.com.br',
-      subtotal: orderData.subtotal,
-      shipping_fee: orderData.shippingFee,
-      discount: orderData.discount,
-      total: orderData.total,
-      status: orderData.status,
+      customer_id: activeCustomer.id,
+      customer_email: session.user.email, // Always use authenticated user's email
+      subtotal: officialSubtotal,
+      shipping_fee: officialShippingFee,
+      discount: officialDiscount,
+      total: officialTotal,
+      status: 'pendente', // Initial status ALWAYS 'pendente' until payment confirmation
       payment_method: orderData.paymentMethod,
       delivery_address: orderData.deliveryAddress,
       tracking_code: orderData.trackingCode
@@ -570,16 +845,17 @@ export async function createOrderWithItems(
 
     if (orderError || !insertedOrder) {
       console.error('createOrder error:', orderError);
-      return null;
+      throw new Error('Não foi possível criar seu pedido. Verifique sua sessão e tente novamente.');
     }
 
-    const orderItemsPayload = items.map((item) => ({
+    // 10. Create order_items with official unit prices
+    const orderItemsPayload = verifiedOrderItems.map((item) => ({
       order_id: insertedOrder.id,
-      product_id: item.product.id.includes('-') && item.product.id.length > 30 ? item.product.id : null,
-      product_snapshot: item.product,
+      product_id: item.product_id,
+      product_snapshot: item.product_snapshot,
       quantity: item.quantity,
-      unit_price: item.product.price,
-      selected_option: item.selectedOption || null
+      unit_price: item.unit_price,
+      selected_option: item.selected_option
     }));
 
     const { error: itemsError } = await supabase
@@ -588,13 +864,19 @@ export async function createOrderWithItems(
 
     if (itemsError) {
       console.error('createOrderItems error:', itemsError);
+      try {
+        await supabase.from('orders').delete().eq('id', insertedOrder.id);
+      } catch {
+        // ignore
+      }
+      throw new Error('Não foi possível criar os itens do seu pedido. Tente novamente.');
     }
 
     return {
       id: insertedOrder.id,
       code: insertedOrder.code,
       date: insertedOrder.created_at,
-      items: items,
+      items: sanitizedItems,
       subtotal: Number(insertedOrder.subtotal),
       shippingFee: Number(insertedOrder.shipping_fee),
       discount: Number(insertedOrder.discount),
@@ -604,9 +886,9 @@ export async function createOrderWithItems(
       deliveryAddress: insertedOrder.delivery_address,
       trackingCode: insertedOrder.tracking_code
     };
-  } catch (err) {
+  } catch (err: any) {
     console.error('createOrderWithItems exception:', err);
-    return null;
+    throw err;
   }
 }
 

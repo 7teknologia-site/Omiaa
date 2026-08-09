@@ -59,6 +59,8 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ initialTab = 'bran
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
   const [formData, setFormData] = useState<StoreSettings>(storeSettings);
   const [isSaved, setIsSaved] = useState(false);
+  const [isTestingInfinitePay, setIsTestingInfinitePay] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null);
   const [systemLogs, setSystemLogs] = useState<Array<{ id: string; time: string; type: string; msg: string }>>([
     { id: '1', time: '10:42:15', type: 'INFO', msg: 'Sistema de configurações da loja inicializado.' },
     { id: '2', time: '10:45:00', type: 'SUCCESS', msg: 'Cache de ativos estáticos sincronizado.' },
@@ -129,6 +131,37 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ initialTab = 'bran
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleTestInfinitePayConnection = async () => {
+    setIsTestingInfinitePay(true);
+    setTestResult(null);
+    try {
+      const handleToTest = formData.integrations.infinitePayHandle || 'max_b';
+      const cleanHandle = handleToTest.trim().replace(/^\$/, '');
+
+      const res = await fetch('/api/payments/infinitepay/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handle: cleanHandle })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestResult({ success: true, msg: data.message || 'Conexão com InfinitePay configurada corretamente.' });
+        showToast('Conexão Confirmada', data.message || 'Conexão com InfinitePay configurada corretamente.', 'success');
+      } else {
+        const errorMsg = data.errorMessage || 'Não foi possível validar a configuração da InfinitePay. Verifique o Handle e as configurações do ambiente.';
+        setTestResult({ success: false, msg: errorMsg });
+        showToast('Erro de Conexão', errorMsg, 'alert');
+      }
+    } catch (err) {
+      const fallbackMsg = 'Erro ao conectar com o servidor para testar a InfinitePay. Verifique sua conexão de rede.';
+      setTestResult({ success: false, msg: fallbackMsg });
+      showToast('Erro de Conexão', fallbackMsg, 'alert');
+    } finally {
+      setIsTestingInfinitePay(false);
+    }
   };
 
   const handleSaveAll = (e?: React.FormEvent) => {
@@ -1202,19 +1235,159 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ initialTab = 'bran
             {/* 8. INTEGRAÇÕES */}
             {activeTab === 'integrations' && (
               <div className="bg-white p-6 sm:p-8 rounded-3xl border border-[#E2D9C8] space-y-6 shadow-xs">
-                <div className="flex items-center gap-3 border-b border-[#E2D9C8] pb-4">
-                  <div className="p-2.5 bg-[#14281D]/5 rounded-2xl text-[#14281D]">
-                    <Zap className="w-6 h-6 text-[#C5A059]" />
+                <div className="flex items-center justify-between border-b border-[#E2D9C8] pb-4 flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-[#14281D]/5 rounded-2xl text-[#14281D]">
+                      <Zap className="w-6 h-6 text-[#C5A059]" />
+                    </div>
+                    <div>
+                      <h2 className="font-serif text-lg font-bold text-[#14281D]">Integrações & Configurações de Pagamento</h2>
+                      <p className="text-xs text-[#718096]">Gerencie os gateways de pagamento e integrações de logística e e-mail da OMIAÁ.</p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="font-serif text-lg font-bold text-[#14281D]">Integrações & APIs</h2>
-                    <p className="text-xs text-[#718096]">Credenciais do Mercado Pago, PIX, Melhor Envio e Servidor de E-mail SMTP.</p>
+
+                  {/* Top Active Gateway Indicator */}
+                  <div className="flex items-center gap-2 bg-[#FAF7F2] border border-[#E2D9C8] px-3.5 py-1.5 rounded-full text-xs">
+                    <span className="text-[#718096]">Gateway ativo:</span>
+                    <span className="font-bold text-[#14281D]">InfinitePay</span>
+                    <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      🟢 Ativo
+                    </span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                  <div className="md:col-span-2 p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D9C8] space-y-3">
-                    <span className="font-bold text-[#14281D] uppercase tracking-wider block">Mercado Pago</span>
+                {/* Gateway Information Banner */}
+                <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl flex items-start gap-3 text-xs text-emerald-950">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-[#14281D]">InfinitePay é o Gateway Ativo do Checkout OMIAÁ</p>
+                    <p className="text-[11px] text-[#4A5568] mt-0.5">
+                      Todos os pagamentos do e-commerce são processados via InfinitePay (PIX e Cartão). O Mercado Pago permanece totalmente configurado e preservado para eventual reativação.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-6 text-xs">
+                  {/* CARD 1: INFINITEPAY */}
+                  <div className="p-5 bg-[#FAF7F2] rounded-2xl border-2 border-[#14281D]/20 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between flex-wrap gap-2 border-b border-[#E2D9C8] pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-[#14281D] text-[#C5A059] flex items-center justify-center font-bold text-base shadow-xs">
+                          ∞
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-[#14281D] text-sm uppercase tracking-wider">InfinitePay</span>
+                            <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300">
+                              🟢 Ativo
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-[#718096]">
+                            Configure a integração da InfinitePay para receber pagamentos via PIX e cartão diretamente no checkout da OMIAÁ.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold text-[#718096]">Status:</span>
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-bold text-[11px] border border-emerald-200">
+                          Ativo
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5 md:col-span-2">
+                        <label className="block font-bold text-[#14281D]">
+                          InfiniteTag / Handle <span className="text-emerald-700 font-normal">(sem o símbolo $)</span>
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-2.5 text-[#718096] font-mono font-bold">$</span>
+                          <input
+                            type="text"
+                            placeholder="max_b"
+                            value={formData.integrations.infinitePayHandle || 'max_b'}
+                            onChange={(e) => {
+                              const clean = e.target.value.replace(/^\$/, '');
+                              handleNestedChange('integrations', 'infinitePayHandle', clean);
+                            }}
+                            className="w-full bg-white border border-[#E2D9C8] rounded-xl pl-7 pr-3 py-2 text-xs font-mono text-[#14281D] focus:border-[#14281D] focus:ring-1 focus:ring-[#14281D]"
+                          />
+                        </div>
+                        <p className="text-[11px] text-[#718096]">
+                          Exemplo: para a InfiniteTag <strong>$max_b</strong>, informe apenas <strong>max_b</strong>.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* InfinitePay Action Buttons */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[#E2D9C8]">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveAll}
+                          className="px-4 py-2 bg-[#14281D] text-[#FAF7F2] hover:bg-[#C5A059] hover:text-[#14281D] rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Save className="w-3.5 h-3.5 text-[#C5A059]" />
+                          <span>Salvar Configuração</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isTestingInfinitePay}
+                          onClick={handleTestInfinitePayConnection}
+                          className="px-4 py-2 bg-white text-[#14281D] border border-[#E2D9C8] hover:bg-[#FAF7F2] rounded-xl font-bold text-xs transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                        >
+                          {isTestingInfinitePay ? (
+                            <RefreshCw className="w-3.5 h-3.5 text-[#C5A059] animate-spin" />
+                          ) : (
+                            <Zap className="w-3.5 h-3.5 text-[#C5A059]" />
+                          )}
+                          <span>{isTestingInfinitePay ? 'Testando...' : 'Testar Conexão'}</span>
+                        </button>
+                      </div>
+
+                      {testResult && (
+                        <div className={`text-xs px-3 py-1.5 rounded-xl border flex items-center gap-1.5 ${
+                          testResult.success 
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                            : 'bg-rose-50 text-rose-800 border-rose-200'
+                        }`}>
+                          {testResult.success ? (
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                          )}
+                          <span className="font-medium">{testResult.msg}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* CARD 2: MERCADO PAGO (PRESERVED) */}
+                  <div className="p-5 bg-[#FAF7F2] rounded-2xl border border-[#E2D9C8] space-y-4">
+                    <div className="flex items-center justify-between flex-wrap gap-2 border-b border-[#E2D9C8] pb-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-[#14281D] text-sm uppercase tracking-wider">Mercado Pago</span>
+                          <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300">
+                            ⚪ Desabilitado (Preservado)
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#718096] mt-0.5">
+                          O Mercado Pago permanece totalmente configurado no sistema e pode ser reativado futuramente.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold text-[#718096]">Status:</span>
+                        <span className="px-2.5 py-1 rounded-lg bg-gray-200 text-gray-700 font-bold text-[11px]">
+                          Inativo
+                        </span>
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block font-semibold mb-1">Access Token</label>
@@ -1222,7 +1395,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ initialTab = 'bran
                           type="password"
                           value={formData.integrations.mercadoPagoAccessToken}
                           onChange={(e) => handleNestedChange('integrations', 'mercadoPagoAccessToken', e.target.value)}
-                          className="w-full bg-white border border-[#E2D9C8] rounded-xl px-3 py-2 text-xs font-mono"
+                          className="w-full bg-white border border-[#E2D9C8] rounded-xl px-3 py-2 text-xs font-mono text-[#14281D]"
                         />
                       </div>
                       <div>
@@ -1231,35 +1404,51 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ initialTab = 'bran
                           type="text"
                           value={formData.integrations.mercadoPagoPublicKey}
                           onChange={(e) => handleNestedChange('integrations', 'mercadoPagoPublicKey', e.target.value)}
-                          className="w-full bg-white border border-[#E2D9C8] rounded-xl px-3 py-2 text-xs font-mono"
+                          className="w-full bg-white border border-[#E2D9C8] rounded-xl px-3 py-2 text-xs font-mono text-[#14281D]"
                         />
                       </div>
                     </div>
-                  </div>
 
-                  <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D9C8] space-y-3">
-                    <span className="font-bold text-[#14281D] uppercase tracking-wider block">PIX Direto</span>
-                    <div>
-                      <label className="block font-semibold mb-1">Chave PIX</label>
-                      <input
-                        type="text"
-                        value={formData.integrations.pixKey}
-                        onChange={(e) => handleNestedChange('integrations', 'pixKey', e.target.value)}
-                        className="w-full bg-white border border-[#E2D9C8] rounded-xl px-3 py-2 text-xs font-mono"
-                      />
+                    <div className="flex items-center justify-between pt-2 border-t border-[#E2D9C8] text-[11px] text-[#718096] flex-wrap gap-2">
+                      <span className="italic">
+                        ℹ️ Suas credenciais do Mercado Pago continuam salvas no ambiente e no banco de dados.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => showToast('Informativo', 'A InfinitePay é o gateway ativo principal. O Mercado Pago permanece intacto para futura reativação.', 'info')}
+                        className="text-[#14281D] hover:underline font-semibold cursor-pointer"
+                      >
+                        Reativar Futuramente
+                      </button>
                     </div>
                   </div>
 
-                  <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D9C8] space-y-3">
-                    <span className="font-bold text-[#14281D] uppercase tracking-wider block">Melhor Envio</span>
-                    <div>
-                      <label className="block font-semibold mb-1">Token da API</label>
-                      <input
-                        type="password"
-                        value={formData.integrations.melhorEnvioToken}
-                        onChange={(e) => handleNestedChange('integrations', 'melhorEnvioToken', e.target.value)}
-                        className="w-full bg-white border border-[#E2D9C8] rounded-xl px-3 py-2 text-xs font-mono"
-                      />
+                  {/* PIX Direto & Melhor Envio Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D9C8] space-y-3">
+                      <span className="font-bold text-[#14281D] uppercase tracking-wider block">PIX Direto (Chave Avulsa)</span>
+                      <div>
+                        <label className="block font-semibold mb-1">Chave PIX</label>
+                        <input
+                          type="text"
+                          value={formData.integrations.pixKey}
+                          onChange={(e) => handleNestedChange('integrations', 'pixKey', e.target.value)}
+                          className="w-full bg-white border border-[#E2D9C8] rounded-xl px-3 py-2 text-xs font-mono text-[#14281D]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D9C8] space-y-3">
+                      <span className="font-bold text-[#14281D] uppercase tracking-wider block">Melhor Envio (Logística)</span>
+                      <div>
+                        <label className="block font-semibold mb-1">Token da API</label>
+                        <input
+                          type="password"
+                          value={formData.integrations.melhorEnvioToken}
+                          onChange={(e) => handleNestedChange('integrations', 'melhorEnvioToken', e.target.value)}
+                          className="w-full bg-white border border-[#E2D9C8] rounded-xl px-3 py-2 text-xs font-mono text-[#14281D]"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>

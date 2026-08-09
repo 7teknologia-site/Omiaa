@@ -1,8 +1,10 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useShop } from '../context/ShopContext';
 import { Address, Order, ShippingOption } from '../types';
 import { SHIPPING_OPTIONS, MOCK_PIX_PAYLOAD } from '../constants/shop';
 import { processMercadoPagoPayment, sendEmailConfirmation } from '../services/mercadopagoService';
+import { createInfinitePayCheckout, getPaymentConfig } from '../services/infinitepayService';
+import { isSupabaseConfigured } from '../services/supabaseService';
 
 export const useCheckout = () => {
   const {
@@ -13,16 +15,24 @@ export const useCheckout = () => {
     createOrder,
     setViewMode,
     latestOrder,
-    showToast
+    showToast,
+    authSession
   } = useShop();
 
   const [currentStep, setCurrentStep] = useState<number>(1);
 
   // Form Fields
   const [customerName, setCustomerName] = useState(user.name || '');
-  const [customerEmail, setCustomerEmail] = useState(user.email || '');
-  const [customerCpf, setCustomerCpf] = useState('123.456.789-00');
+  const [customerEmail, setCustomerEmail] = useState(authSession?.user?.email || user.email || '');
+  const [customerCpf, setCustomerCpf] = useState(user.cpf || '123.456.789-00');
   const [customerPhone, setCustomerPhone] = useState(user.phone || '(11) 98765-4321');
+
+  // Keep customerEmail synced with active authenticated session
+  useEffect(() => {
+    if (authSession?.user?.email) {
+      setCustomerEmail(authSession.user.email);
+    }
+  }, [authSession]);
 
   const [address, setAddress] = useState<Address>(user.addresses[0] || {
     street: 'Rua das Camélias',
@@ -110,6 +120,10 @@ export const useCheckout = () => {
   };
 
   const handleNextStep = () => {
+    if (currentStep === 1 && isSupabaseConfigured && !authSession?.user) {
+      showToast('Autenticação necessária', 'Para finalizar sua compra, entre na sua conta ou cadastre-se.', 'alert');
+      return;
+    }
     if (validateStep(currentStep)) {
       setCurrentStep((prev) => Math.min(5, prev + 1));
     } else {
@@ -128,54 +142,129 @@ export const useCheckout = () => {
 
   const handleFinishCheckout = async (e: FormEvent) => {
     e.preventDefault();
+
+    if (isSupabaseConfigured && !authSession?.user) {
+      showToast('Autenticação necessária', 'Para finalizar sua compra, entre na sua conta ou cadastre-se.', 'alert');
+      return;
+    }
+
     setIsSubmitting(true);
     setLastPaymentError(null);
 
+    const activeUserEmail = authSession?.user?.email || customerEmail;
+
     try {
-      // Simulate/call Mercado Pago Processing
-      const mpResult = await processMercadoPagoPayment({
-        paymentMethod,
-        amount: calculatedTotal,
-        payerEmail: customerEmail,
-        payerName: customerName,
-        payerCpf: customerCpf,
-        installments
+      // Fetch Active Payment Gateway Configuration
+      const payConfig = await getPaymentConfig();
+      const activeGateway = payConfig.gateway || 'infinitepay';
+
+      if (activeGateway === 'mercadopago') {
+        // Mercado Pago flow (Preserved for backward compatibility / configuration toggle)
+        const mpResult = await processMercadoPagoPayment({
+          paymentMethod,
+          amount: calculatedTotal,
+          payerEmail: activeUserEmail,
+          payerName: customerName,
+          payerCpf: customerCpf,
+          installments
+        });
+
+        if (!mpResult.success) {
+          setIsSubmitting(false);
+          setLastPaymentError(mpResult.errorMessage || 'Sua transação não pôde ser aprovada pelo Mercado Pago.');
+          setViewMode('order-error');
+          return;
+        }
+
+        const pixPayloadStr = MOCK_PIX_PAYLOAD;
+        const pixQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(pixPayloadStr)}`;
+        const boletoCode = `34191.79001 01043.510047 91020.150008 5 91230000${Math.floor(calculatedTotal)}`;
+
+        const newOrder = await createOrder(paymentMethod, address, {
+          customerName,
+          customerEmail: activeUserEmail,
+          customerPhone,
+          customerCpf,
+          total: calculatedTotal,
+          pixPayload: pixPayloadStr,
+          pixQrCodeUrl: pixQrUrl,
+          boletoBarcode: boletoCode,
+          mercadoPagoPaymentId: mpResult.paymentId
+        });
+
+        if (!newOrder) {
+          throw new Error('Não foi possível criar seu pedido. Verifique sua sessão e tente novamente.');
+        }
+
+        await sendEmailConfirmation(newOrder, activeUserEmail);
+        setIsSubmitting(false);
+        showToast('E-mail enviado!', `Confirmação de pedido enviada para ${activeUserEmail}`, 'success');
+        setViewMode('order-success');
+        return;
+      }
+
+      // Active Gateway: InfinitePay
+      // Step 0: Validate Brazilian Phone Number (DDD + 8 or 9 digits)
+      const phoneDigits = customerPhone ? customerPhone.replace(/\D/g, '') : '';
+      if (!phoneDigits || phoneDigits.length < 10 || phoneDigits.length > 11) {
+        setIsSubmitting(false);
+        const errMsg = 'Informe um número de telefone com DDD válido (ex: 11 99999-8888) para prosseguir.';
+        setLastPaymentError(errMsg);
+        showToast('Telefone Inválido', errMsg, 'alert');
+        return;
+      }
+
+      // Step 1: Create Order in Supabase first (status: 'pendente')
+      const newOrder = await createOrder(paymentMethod, address, {
+        customerName,
+        customerEmail: activeUserEmail,
+        customerPhone,
+        customerCpf,
+        total: calculatedTotal
       });
 
-      if (!mpResult.success) {
+      if (!newOrder) {
+        throw new Error('Não foi possível registrar o pedido no banco de dados. Tente novamente.');
+      }
+
+      // Step 2: Create InfinitePay checkout URL via backend API
+      const ipResult = await createInfinitePayCheckout({
+        orderId: newOrder.id,
+        orderCode: newOrder.code,
+        customerName,
+        customerEmail: activeUserEmail,
+        customerPhone,
+        items: newOrder.items.map(item => ({
+          name: item.product.name,
+          price: item.product.price,
+          quantity: item.quantity
+        })),
+        total: calculatedTotal
+      });
+
+      if (!ipResult.success || !ipResult.url) {
         setIsSubmitting(false);
-        setLastPaymentError(mpResult.errorMessage || 'Sua transação não pôde ser aprovada pelo Mercado Pago.');
+        const errMsg = ipResult.errorMessage || 'Ocorreu um erro ao comunicar com a operadora de pagamento InfinitePay.';
+        setLastPaymentError(errMsg);
+        showToast('Erro no Checkout', errMsg, 'alert');
         setViewMode('order-error');
         return;
       }
 
-      // Generate order payload metadata
-      const pixPayloadStr = MOCK_PIX_PAYLOAD;
-      const pixQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(pixPayloadStr)}`;
-      const boletoCode = `34191.79001 01043.510047 91020.150008 5 91230000${Math.floor(calculatedTotal)}`;
-
-      const newOrder = await createOrder(paymentMethod, address, {
-        customerName,
-        customerEmail,
-        customerPhone,
-        customerCpf,
-        total: calculatedTotal,
-        pixPayload: pixPayloadStr,
-        pixQrCodeUrl: pixQrUrl,
-        boletoBarcode: boletoCode,
-        mercadoPagoPaymentId: mpResult.paymentId
-      });
-
-      // Dispatch Email Confirmation
-      await sendEmailConfirmation(newOrder, customerEmail);
+      // Step 3: Send confirmation email notification
+      await sendEmailConfirmation(newOrder, activeUserEmail);
 
       setIsSubmitting(false);
-      showToast('E-mail enviado!', `Confirmação de pedido enviada para ${customerEmail}`, 'success');
-      setViewMode('order-success');
-    } catch (err) {
+      showToast('Redirecionando...', 'Redirecionando para o ambiente de pagamento seguro InfinitePay.', 'info');
+
+      // Step 4: Redirect customer to InfinitePay Checkout URL
+      window.location.href = ipResult.url;
+    } catch (err: any) {
       console.error('Checkout error:', err);
       setIsSubmitting(false);
-      setLastPaymentError('Ocorreu uma falha inesperada no processamento. Tente novamente.');
+      const userMsg = err?.message || 'Não foi possível criar seu pedido. Verifique sua sessão e tente novamente.';
+      setLastPaymentError(userMsg);
+      showToast('Erro no Checkout', userMsg, 'alert');
       setViewMode('order-error');
     }
   };

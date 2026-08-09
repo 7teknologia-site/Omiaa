@@ -145,10 +145,14 @@ export const DEFAULT_STORE_SETTINGS: StoreSettings = {
   },
 
   integrations: {
+    activeGateway: 'infinitepay',
+    infinitePayHandle: 'max_b',
+    infinitePayEnabled: true,
     mercadoPagoAccessToken: 'APP_USR-87391823910238-072710-18293710238-12345678',
     mercadoPagoPublicKey: 'APP_USR-71283910-1283-4211-1234-567890abcdef',
     mercadoPagoWebhookSecret: 'whsec_omiaa_alquimia_2026_secret',
     mercadoPagoEnvironment: 'simulation',
+    mercadoPagoEnabled: false,
     pixKey: '7teknologia@gmail.com',
     pixMerchantName: 'OMIAA ALQUIMIA ANCESTRAL',
     pixCity: 'SAO PAULO',

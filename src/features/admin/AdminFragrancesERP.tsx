@@ -104,7 +104,7 @@ export const AdminFragrancesERP: React.FC = () => {
                   'bg-sky-50 text-sky-900 border-sky-300'
                 }`}
               >
-                <option value="encomedado">Encomendado</option>
+                <option value="encomendado">Encomendado</option>
                 <option value="macerando">Em Maceração (28 dias)</option>
                 <option value="concluido">Pronto / Envasado</option>
               </select>

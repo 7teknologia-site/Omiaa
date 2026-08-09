@@ -40,7 +40,7 @@ export const FragranceStatusTracker: React.FC<FragranceStatusTrackerProps> = ({
 
   const getStageIndex = (status?: string) => {
     if (!status) return 0;
-    if (status === 'encomedado') return 3;
+    if (status === 'encomendado') return 3;
     const idx = STAGES.findIndex((s) => s.key === status);
     return idx >= 0 ? idx : 1;
   };
@@ -117,7 +117,7 @@ export const FragranceStatusTracker: React.FC<FragranceStatusTrackerProps> = ({
               </div>
 
               {/* Maceration Progress Countdown Bar */}
-              {(item.status === 'macerando' || item.status === 'encomedado') && (
+              {(item.status === 'macerando' || item.status === 'encomendado') && (
                 <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E2D9C8] space-y-3">
                   <div className="flex justify-between items-center text-xs">
                     <span className="font-serif font-bold text-[#14281D] flex items-center gap-2">

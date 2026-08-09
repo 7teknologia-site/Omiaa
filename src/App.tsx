@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { ShopProvider, useShop } from './context/ShopContext';
 import { AnnouncementBar } from './features/layout/AnnouncementBar';
 import { Header } from './features/layout/Header';
@@ -23,6 +23,7 @@ const AdminView = lazy(() => import('./features/admin/AdminView').then(m => ({ d
 const BlogView = lazy(() => import('./features/blog/BlogView').then(m => ({ default: m.BlogView })));
 const BotanicalLibraryView = lazy(() => import('./features/botanical/BotanicalLibraryView').then(m => ({ default: m.BotanicalLibraryView })));
 const CustomFragranceView = lazy(() => import('./features/fragrance/CustomFragranceView').then(m => ({ default: m.CustomFragranceView })));
+const ObrigadoView = lazy(() => import('./features/cart/ObrigadoView').then(m => ({ default: m.ObrigadoView })));
 
 const ViewLoadingFallback = () => (
   <div className="min-h-[50vh] flex flex-col items-center justify-center space-y-4 py-16">
@@ -37,7 +38,15 @@ const ViewLoadingFallback = () => (
 );
 
 function MainAppContent() {
-  const { viewMode } = useShop();
+  const { viewMode, setViewMode } = useShop();
+
+  useEffect(() => {
+    const pathname = window.location.pathname;
+    const search = window.location.search;
+    if (pathname === '/obrigado' || search.includes('order_nsu=')) {
+      setViewMode('obrigado');
+    }
+  }, [setViewMode]);
 
   return (
     <div className="min-h-screen bg-[#FAF9F6] text-[#1B3B2B] flex flex-col font-sans selection:bg-[#C5A059] selection:text-[#1B3B2B]">
@@ -61,6 +70,7 @@ function MainAppContent() {
           {viewMode === 'blog' && <BlogView />}
           {viewMode === 'botanical' && <BotanicalLibraryView />}
           {viewMode === 'fragrance-atelier' && <CustomFragranceView />}
+          {viewMode === 'obrigado' && <ObrigadoView />}
         </Suspense>
       </main>
 

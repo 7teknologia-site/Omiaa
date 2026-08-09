@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { User, Mail, ShieldAlert, Phone, LogIn, CheckCircle2 } from 'lucide-react';
 import { useShop } from '../../../context/ShopContext';
 
@@ -27,17 +27,8 @@ export const StepIdentification: React.FC<StepIdentificationProps> = ({
   errors,
   handleNextStep
 }) => {
-  const { user, showToast } = useShop();
-  const [isLoggedAccount, setIsLoggedAccount] = useState(Boolean(user.email));
-
-  const handleAutofillUser = () => {
-    if (user.name) setCustomerName(user.name);
-    if (user.email) setCustomerEmail(user.email);
-    if (user.cpf) setCustomerCpf(user.cpf);
-    if (user.phone) setCustomerPhone(user.phone);
-    setIsLoggedAccount(true);
-    showToast('Dados Carregados', 'Sua conta OMIAA foi identificada com sucesso.', 'success');
-  };
+  const { user, authSession, setViewMode } = useShop();
+  const isAuthenticated = Boolean(authSession?.user);
 
   return (
     <div className="bg-white p-6 sm:p-8 rounded-3xl border border-[#E2D9C8] space-y-6 shadow-xs font-sans">
@@ -50,35 +41,42 @@ export const StepIdentification: React.FC<StepIdentificationProps> = ({
             <span>Passo 1: Login / Identificação</span>
           </h2>
           <p className="text-xs text-[#718096] mt-1">
-            Entre com sua conta OMIAA ou continue como visitante.
+            {isAuthenticated
+              ? 'Confirme seus dados para continuar o pedido.'
+              : 'O checkout exige que você esteja autenticado na sua conta OMIAÁ.'}
           </p>
         </div>
-
-        {user.email && !isLoggedAccount && (
-          <button
-            type="button"
-            onClick={handleAutofillUser}
-            className="inline-flex items-center gap-1.5 bg-[#FAF7F2] border border-[#C5A059] text-[#14281D] px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-[#C5A059] transition-colors shrink-0"
-          >
-            <LogIn className="w-3.5 h-3.5 text-[#C5A059]" />
-            <span>Usar Conta {user.name?.split(' ')[0]}</span>
-          </button>
-        )}
       </div>
 
-      {isLoggedAccount && user.email && (
-        <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-2xl flex items-center justify-between text-xs text-emerald-900">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-            <span>Identificado como <strong>{user.name}</strong> ({user.email})</span>
+      {/* Unauthenticated Alert Banner */}
+      {!isAuthenticated && (
+        <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs text-amber-900">
+          <div className="flex items-start gap-3">
+            <LogIn className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-sm text-[#14281D]">Autenticação Necessária</p>
+              <p className="text-[#718096] text-xs">
+                Para finalizar sua compra, entre na sua conta ou cadastre-se. Seu carrinho permanecerá salvo.
+              </p>
+            </div>
           </div>
           <button
             type="button"
-            onClick={() => setIsLoggedAccount(false)}
-            className="text-[10px] font-bold text-emerald-800 underline"
+            onClick={() => setViewMode('account')}
+            className="bg-[#14281D] text-[#FAF7F2] hover:bg-[#C5A059] hover:text-[#14281D] px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider shrink-0 transition-colors shadow-xs"
           >
-            Alterar dados
+            Entrar / Cadastrar
           </button>
+        </div>
+      )}
+
+      {/* Authenticated Status Badge */}
+      {isAuthenticated && (
+        <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-2xl flex items-center justify-between text-xs text-emerald-900">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span>Identificado como <strong>{user?.name || authSession.user.email}</strong> ({authSession.user.email})</span>
+          </div>
         </div>
       )}
 
@@ -105,10 +103,15 @@ export const StepIdentification: React.FC<StepIdentificationProps> = ({
           <div className="relative">
             <input
               type="email"
-              value={customerEmail}
-              onChange={(e) => setCustomerEmail(e.target.value)}
+              value={authSession?.user?.email || customerEmail}
+              readOnly={isAuthenticated}
+              onChange={(e) => !isAuthenticated && setCustomerEmail(e.target.value)}
               placeholder="maria@alquimia.com"
-              className="w-full bg-[#FAF7F2] border border-[#E2D9C8] rounded-xl pl-9 pr-3 py-3 text-[#14281D] font-semibold focus:outline-none focus:border-[#C5A059]"
+              className={`w-full border rounded-xl pl-9 pr-3 py-3 font-semibold focus:outline-none ${
+                isAuthenticated
+                  ? 'bg-gray-100 border-gray-200 text-gray-600 cursor-not-allowed'
+                  : 'bg-[#FAF7F2] border-[#E2D9C8] text-[#14281D] focus:border-[#C5A059]'
+              }`}
             />
             <Mail className="w-4 h-4 text-[#8C7A5B] absolute left-3 top-1/2 -translate-y-1/2" />
           </div>

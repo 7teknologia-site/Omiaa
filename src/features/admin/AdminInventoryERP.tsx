@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Package,
   Plus,
@@ -21,8 +21,15 @@ interface AdminInventoryERPProps {
 }
 
 export const AdminInventoryERP: React.FC<AdminInventoryERPProps> = ({ products: initialProducts }) => {
-  const { showToast } = useShop();
-  const [productsList, setProductsList] = useState<Product[]>(initialProducts);
+  const { updateExistingProduct, products: shopProducts, showToast } = useShop();
+  const [productsList, setProductsList] = useState<Product[]>(shopProducts.length ? shopProducts : initialProducts);
+
+  useEffect(() => {
+    if (shopProducts && shopProducts.length > 0) {
+      setProductsList(shopProducts);
+    }
+  }, [shopProducts]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [stockLevelFilter, setStockLevelFilter] = useState<'todos' | 'critico' | 'normal'>('todos');
 
@@ -55,17 +62,11 @@ export const AdminInventoryERP: React.FC<AdminInventoryERPProps> = ({ products: 
     return filteredProducts.slice(start, start + pageSize);
   }, [filteredProducts, currentPage, pageSize]);
 
-  const handleAdjustStock = (productId: string, delta: number) => {
-    setProductsList((prev) =>
-      prev.map((p) => {
-        if (p.id === productId) {
-          const newStock = Math.max(0, p.stock + delta);
-          showToast('Estoque Ajustado', `Estoque de ${p.name} alterado para ${newStock} un.`, 'info');
-          return { ...p, stock: newStock };
-        }
-        return p;
-      })
-    );
+  const handleAdjustStock = async (productId: string, delta: number) => {
+    const target = productsList.find((p) => p.id === productId);
+    if (!target) return;
+    const newStock = Math.max(0, target.stock + delta);
+    await updateExistingProduct(productId, { stock: newStock });
   };
 
   const handleExportCSV = () => {

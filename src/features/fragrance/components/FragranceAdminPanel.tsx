@@ -139,7 +139,7 @@ export const FragranceAdminPanel: React.FC<FragranceAdminPanelProps> = ({ onSend
         <div className="bg-white p-5 rounded-2xl border border-[#E2D9C8] space-y-1 shadow-xs">
           <span className="text-[10px] font-bold text-amber-800 uppercase block">Em Maceração</span>
           <div className="font-serif text-2xl font-bold text-amber-900">
-            {fragrances.filter((f) => f.status === 'macerando' || f.status === 'encomedado').length}
+            {fragrances.filter((f) => f.status === 'macerando' || f.status === 'encomendado').length}
           </div>
         </div>
 
