@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { Session } from '@supabase/supabase-js';
 import { CustomerProfile } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { fetchCustomerProfile } from '../services/supabaseService';
+import { fetchCustomerProfile, ensureCustomerProfile } from '../services/supabaseService';
 
 export const MOCK_CUSTOMER: CustomerProfile = {
   name: 'Iniciado Alquímico',
@@ -78,8 +78,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     // Configured Supabase Auth
+    let activeSession: Session | null = null;
     try {
-      const { data: { session: activeSession }, error: sessionError } = await supabase.auth.getSession();
+      const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+      activeSession = currentSession;
 
       if (sessionError) {
         console.error('[AuthContext] Error retrieving session:', sessionError);
@@ -106,7 +108,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSession(activeSession);
       const uid = targetUserId || activeSession.user.id;
 
-      const profile = await fetchCustomerProfile(uid);
+      // Consult customer profile in public.customers by auth_user_id
+      let profile = await fetchCustomerProfile(uid);
+
+      // If missing in public.customers, auto-create the record
+      if (!profile && activeSession.user) {
+        console.log('[AuthContext] Perfil não encontrado na tabela public.customers. Criando automaticamente...');
+        profile = await ensureCustomerProfile(activeSession.user);
+      }
 
       if (profile) {
         updateCustomerState(profile);
@@ -115,9 +124,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
         return profile;
       } else {
-        // Rule 3: Session exists but profile query returned null / failed
-        // DO NOT fallback to MOCK_CUSTOMER!
-        // Preserve authenticated session with session metadata
+        // If profile creation/fetch failed, preserve session with metadata fallback
         const sessionProfile: CustomerProfile = {
           name: activeSession.user.user_metadata?.full_name || 
                 activeSession.user.user_metadata?.name || 
@@ -131,10 +138,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tier: 'Neófito'
         };
 
-        console.warn('[AuthContext] Customer profile row missing, using session credentials.');
+        console.error('[AuthContext] Falha explícita ao criar ou carregar perfil do cliente no Supabase.');
         updateCustomerState(sessionProfile);
         setIsAuthenticated(true);
-        setError('Perfil do cliente não encontrado na base de dados.');
+        setError('Erro ao sincronizar perfil do cliente na base de dados.');
         setLoading(false);
         return sessionProfile;
       }
@@ -153,10 +160,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return null;
       }
 
-      if (session?.user) {
+      if (activeSession?.user) {
         const sessionProfile: CustomerProfile = {
-          name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Cliente Omiaá',
-          email: session.user.email || '',
+          name: activeSession.user.user_metadata?.full_name || activeSession.user.email?.split('@')[0] || 'Cliente Omiaá',
+          email: activeSession.user.email || '',
           phone: '',
           cpf: '',
           addresses: [],
@@ -177,7 +184,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
       return null;
     }
-  }, [updateCustomerState, session]);
+  }, [updateCustomerState]);
 
   const signOut = useCallback(async () => {
     if (isSupabaseConfigured) {
@@ -207,7 +214,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
         setSession(newSession);
-        refreshProfile(newSession.user.id);
+        setTimeout(() => {
+          refreshProfile(newSession.user.id);
+        }, 0);
       }
     });
 

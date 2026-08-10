@@ -812,25 +812,9 @@ export async function createOrderWithItems(
     if (existingCustomer) {
       activeCustomer = existingCustomer;
     } else {
-      // Attempt upsert of customer profile
-      const profilePayload: CustomerProfile = {
-        name: orderData.customerName || session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Cliente Omiaá',
-        email: session.user.email || '',
-        phone: orderData.customerPhone || '',
-        cpf: orderData.customerCpf || '',
-        addresses: orderData.deliveryAddress ? [orderData.deliveryAddress] : [],
-        loyaltyPoints: 0,
-        tier: 'Neófito'
-      };
-
-      const upserted = await upsertCustomerProfile(profilePayload, session.user.id);
-      if (upserted) {
-        const { data: newlyCreated } = await supabase
-          .from('customers')
-          .select('id, email, name')
-          .eq('auth_user_id', session.user.id)
-          .maybeSingle();
-        activeCustomer = newlyCreated;
+      const ensured = await ensureCustomerProfile(session.user);
+      if (ensured && ensured.id) {
+        activeCustomer = { id: ensured.id, email: ensured.email, name: ensured.name };
       }
     }
 
@@ -961,11 +945,12 @@ export async function fetchCustomerProfile(authUserId: string): Promise<Customer
       .from('customers')
       .select('*')
       .eq('auth_user_id', authUserId)
-      .single();
+      .maybeSingle();
 
     if (error || !data) return null;
 
     return {
+      id: data.id,
       name: data.name,
       email: data.email,
       phone: data.phone || '',
@@ -980,12 +965,107 @@ export async function fetchCustomerProfile(authUserId: string): Promise<Customer
   }
 }
 
+export async function ensureCustomerProfile(authUser: {
+  id: string;
+  email?: string;
+  user_metadata?: Record<string, any>;
+}): Promise<CustomerProfile | null> {
+  if (!isSupabaseConfigured || !authUser.id || !authUser.email) return null;
+
+  try {
+    // 1. Check if profile already exists by auth_user_id
+    const existing = await fetchCustomerProfile(authUser.id);
+    if (existing) {
+      return existing;
+    }
+
+    // 2. Check if profile exists by email (to avoid duplicate key error and link if needed)
+    const { data: existingByEmail, error: emailErr } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('email', authUser.email)
+      .maybeSingle();
+
+    if (!emailErr && existingByEmail) {
+      // Link existing customer record with auth_user_id
+      const { data: updated, error: updateErr } = await supabase
+        .from('customers')
+        .update({ auth_user_id: authUser.id })
+        .eq('id', existingByEmail.id)
+        .select('*')
+        .single();
+
+      if (!updateErr && updated) {
+        return {
+          id: updated.id,
+          name: updated.name,
+          email: updated.email,
+          phone: updated.phone || '',
+          cpf: updated.cpf || '',
+          addresses: updated.addresses || [],
+          loyaltyPoints: updated.loyalty_points || 0,
+          tier: updated.tier || 'Neófito'
+        };
+      } else if (updateErr) {
+        console.warn('[ensureCustomerProfile] Erro ao vincular auth_user_id ao perfil existente por e-mail:', updateErr);
+      }
+    }
+
+    // 3. Create new customer profile in public.customers
+    const name =
+      authUser.user_metadata?.full_name ||
+      authUser.user_metadata?.name ||
+      (authUser.email ? authUser.email.split('@')[0] : 'Cliente Omiaá');
+
+    const phone = authUser.user_metadata?.phone || '';
+
+    const newCustomerPayload = {
+      auth_user_id: authUser.id,
+      email: authUser.email,
+      name,
+      phone,
+      cpf: '',
+      addresses: [],
+      loyalty_points: 0,
+      tier: 'Neófito'
+    };
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('customers')
+      .insert([newCustomerPayload])
+      .select('*')
+      .single();
+
+    if (insertError) {
+      console.error('[ensureCustomerProfile] Erro explícito ao criar registro do cliente em public.customers:', insertError);
+      return null;
+    }
+
+    if (inserted) {
+      return {
+        id: inserted.id,
+        name: inserted.name,
+        email: inserted.email,
+        phone: inserted.phone || '',
+        cpf: inserted.cpf || '',
+        addresses: inserted.addresses || [],
+        loyaltyPoints: inserted.loyalty_points || 0,
+        tier: inserted.tier || 'Neófito'
+      };
+    }
+
+    return null;
+  } catch (err) {
+    console.error('[ensureCustomerProfile] Exceção ao garantir perfil do cliente:', err);
+    return null;
+  }
+}
+
 export async function upsertCustomerProfile(profile: CustomerProfile, authUserId?: string): Promise<boolean> {
   if (!isSupabaseConfigured) return true;
 
   try {
-    const payload = {
-      auth_user_id: authUserId || null,
+    const payload: any = {
       email: profile.email,
       name: profile.name,
       phone: profile.phone,
@@ -994,6 +1074,19 @@ export async function upsertCustomerProfile(profile: CustomerProfile, authUserId
       loyalty_points: profile.loyaltyPoints,
       tier: profile.tier
     };
+
+    if (authUserId) {
+      payload.auth_user_id = authUserId;
+    }
+
+    if (profile.id) {
+      const { error: updateError } = await supabase
+        .from('customers')
+        .update(payload)
+        .eq('id', profile.id);
+
+      if (!updateError) return true;
+    }
 
     const { error } = await supabase
       .from('customers')
