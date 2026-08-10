@@ -5,8 +5,11 @@ import compression from 'compression';
 import { createServer as createViteServer } from 'vite';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseKey = supabaseServiceRoleKey || supabaseAnonKey;
+
 const serverSupabase = (supabaseUrl && supabaseKey && !supabaseUrl.includes('your-project'))
   ? createClient(supabaseUrl, supabaseKey)
   : null;
@@ -816,7 +819,10 @@ Sitemap: https://omiaa.com.br/sitemap.xml
   app.post('/api/admin/products', async (req: Request, res: Response) => {
     try {
       if (!serverSupabase) {
-        return res.status(400).json({ success: false, errorMessage: 'Supabase não configurado no servidor.' });
+        return res.status(400).json({
+          success: false,
+          errorMessage: 'Supabase administrativo não configurado no servidor. Configure SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.'
+        });
       }
 
       const pData = req.body || {};
@@ -847,6 +853,8 @@ Sitemap: https://omiaa.com.br/sitemap.xml
         sku: pData.sku || `OMIA-${Math.floor(1000 + Math.random() * 9000)}`
       };
 
+      console.log('[ADMIN PRODUCT PAYLOAD]:', payload);
+
       const { data, error } = await serverSupabase
         .from('products')
         .insert([payload])
@@ -854,8 +862,20 @@ Sitemap: https://omiaa.com.br/sitemap.xml
         .single();
 
       if (error || !data) {
-        console.error('[ADMIN CREATE PRODUCT ERROR]:', error);
-        return res.status(400).json({ success: false, errorMessage: error?.message || 'Erro ao criar produto.' });
+        console.error('[ADMIN CREATE PRODUCT ERROR]:', {
+          message: error?.message,
+          code: error?.code,
+          details: error?.details,
+          hint: error?.hint
+        });
+        return res.status(400).json({
+          success: false,
+          errorMessage: error?.message || 'Erro ao criar produto.',
+          error: error?.message,
+          code: error?.code,
+          details: error?.details,
+          hint: error?.hint
+        });
       }
 
       const createdProduct = {
@@ -893,7 +913,10 @@ Sitemap: https://omiaa.com.br/sitemap.xml
   app.put('/api/admin/products/:id', async (req: Request, res: Response) => {
     try {
       if (!serverSupabase) {
-        return res.status(400).json({ success: false, errorMessage: 'Supabase não configurado no servidor.' });
+        return res.status(400).json({
+          success: false,
+          errorMessage: 'Supabase administrativo não configurado no servidor. Configure SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.'
+        });
       }
 
       const { id } = req.params;
@@ -920,6 +943,8 @@ Sitemap: https://omiaa.com.br/sitemap.xml
       if (pData.images !== undefined) payload.images = Array.isArray(pData.images) ? pData.images : [];
       if (pData.sku !== undefined) payload.sku = pData.sku;
 
+      console.log('[ADMIN PRODUCT UPDATE PAYLOAD]:', { id, payload });
+
       const { data, error } = await serverSupabase
         .from('products')
         .update(payload)
@@ -928,8 +953,20 @@ Sitemap: https://omiaa.com.br/sitemap.xml
         .single();
 
       if (error || !data) {
-        console.error('[ADMIN UPDATE PRODUCT ERROR]:', error);
-        return res.status(400).json({ success: false, errorMessage: error?.message || 'Erro ao atualizar produto.' });
+        console.error('[ADMIN UPDATE PRODUCT ERROR]:', {
+          message: error?.message,
+          code: error?.code,
+          details: error?.details,
+          hint: error?.hint
+        });
+        return res.status(400).json({
+          success: false,
+          errorMessage: error?.message || 'Erro ao atualizar produto.',
+          error: error?.message,
+          code: error?.code,
+          details: error?.details,
+          hint: error?.hint
+        });
       }
 
       const updatedProduct = {
@@ -967,7 +1004,10 @@ Sitemap: https://omiaa.com.br/sitemap.xml
   app.delete('/api/admin/products/:id', async (req: Request, res: Response) => {
     try {
       if (!serverSupabase) {
-        return res.status(400).json({ success: false, errorMessage: 'Supabase não configurado no servidor.' });
+        return res.status(400).json({
+          success: false,
+          errorMessage: 'Supabase administrativo não configurado no servidor. Configure SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.'
+        });
       }
 
       const { id } = req.params;
