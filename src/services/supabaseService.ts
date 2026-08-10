@@ -444,12 +444,26 @@ function parseClientPrice(val: any): number {
   return isNaN(num) ? 0 : num;
 }
 
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+  } catch (err) {
+    console.warn('Failed to retrieve session token:', err);
+  }
+  return headers;
+}
+
 export async function createProduct(productData: Omit<Product, 'id' | 'createdAt'>): Promise<Product | null> {
   // 1. Try server API endpoint first for reliable admin bypass / persistence
   try {
+    const headers = await getAuthHeaders();
     const res = await fetch('/api/admin/products', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(productData)
     });
     if (res.ok) {
@@ -515,9 +529,10 @@ export async function createProduct(productData: Omit<Product, 'id' | 'createdAt
 export async function updateProduct(id: string, productData: Partial<Product>): Promise<Product | null> {
   // 1. Try server API endpoint first
   try {
+    const headers = await getAuthHeaders();
     const res = await fetch(`/api/admin/products/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(productData)
     });
     if (res.ok) {
@@ -579,8 +594,10 @@ export async function updateProduct(id: string, productData: Partial<Product>): 
 export async function deleteProduct(id: string): Promise<boolean> {
   // 1. Try server API endpoint first
   try {
+    const headers = await getAuthHeaders();
     const res = await fetch(`/api/admin/products/${encodeURIComponent(id)}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers
     });
     if (res.ok) {
       const json = await res.json();

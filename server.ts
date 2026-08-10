@@ -406,60 +406,26 @@ Sitemap: https://omiaa.com.br/sitemap.xml
       return { success: true, message: 'Pedido já processado e pago anteriormente.', alreadyPaid: true };
     }
 
-    // 3. Perform Atomic & Idempotent Stock Deduction via PostgreSQL RPC or fallback
-    let stockDeductedSuccess = false;
+    // 3. Perform Atomic & Idempotent Stock Deduction via PostgreSQL RPC
     try {
       const { data: rpcRes, error: rpcErr } = await serverSupabase.rpc('deduct_order_stock', {
         p_order_id: dbOrder.id
       });
 
-      if (!rpcErr && rpcRes) {
-        if (rpcRes.success === true) {
-          stockDeductedSuccess = true;
-          console.log(`[ATOMIC STOCK] Sucesso via RPC deduct_order_stock para o pedido ${dbOrder.id}:`, rpcRes.message);
-        } else {
-          console.error(`[ATOMIC STOCK] Rejeitado pela RPC deduct_order_stock para o pedido ${dbOrder.id}:`, rpcRes.error);
-          return { success: false, message: rpcRes.error || 'Estoque insuficiente para confirmar o pedido.' };
-        }
-      } else {
-        console.warn(`[ATOMIC STOCK] RPC deduct_order_stock indisponível (${rpcErr?.message}). Executando fallback de reivindicação atômica.`);
+      if (rpcErr || !rpcRes) {
+        console.error(`[ATOMIC STOCK] Erro ao chamar RPC deduct_order_stock para o pedido ${dbOrder.id}:`, rpcErr);
+        return { success: false, message: rpcErr?.message || 'Falha ao executar a baixa atômica de estoque.' };
       }
+
+      if (rpcRes.success !== true) {
+        console.error(`[ATOMIC STOCK] Rejeitado pela RPC deduct_order_stock para o pedido ${dbOrder.id}:`, rpcRes.error);
+        return { success: false, message: rpcRes.error || 'Estoque insuficiente para confirmar o pedido.' };
+      }
+
+      console.log(`[ATOMIC STOCK] Baixa de estoque confirmada via RPC para o pedido ${dbOrder.id}:`, rpcRes.message);
     } catch (rpcEx) {
-      console.warn('[ATOMIC STOCK] Exceção ao chamar RPC deduct_order_stock:', rpcEx);
-    }
-
-    // Fallback atomic deduction if RPC was not executed
-    if (!stockDeductedSuccess) {
-      // Atomic lock: set stock_deducted_at = NOW() ONLY IF it is currently NULL
-      const { data: claimedOrder, error: claimErr } = await serverSupabase
-        .from('orders')
-        .update({ stock_deducted_at: new Date().toISOString() })
-        .eq('id', dbOrder.id)
-        .is('stock_deducted_at', null)
-        .select();
-
-      if (claimErr) {
-        console.error('[ATOMIC STOCK FALLBACK] Erro ao reivindicar baixa de estoque:', claimErr);
-      }
-
-      if (claimedOrder && claimedOrder.length > 0) {
-        console.log(`[ATOMIC STOCK FALLBACK] Reivindicação atômica de baixa obtida para o pedido ${dbOrder.id}. Baixando estoque dos produtos...`);
-        const items = dbOrder.order_items || [];
-        for (const item of items) {
-          if (item.product_id && item.quantity > 0) {
-            const { data: prod } = await serverSupabase.from('products').select('stock').eq('id', item.product_id).maybeSingle();
-            if (prod) {
-              const currentStock = Number(prod.stock || 0);
-              const newStock = Math.max(0, currentStock - Number(item.quantity));
-              await serverSupabase.from('products').update({ stock: newStock }).eq('id', item.product_id);
-            }
-          }
-        }
-        stockDeductedSuccess = true;
-      } else {
-        console.log(`[ATOMIC STOCK FALLBACK] Estoque já havia sido baixado anteriormente para o pedido ${dbOrder.id}. Idempotência garantida.`);
-        stockDeductedSuccess = true;
-      }
+      console.error('[ATOMIC STOCK] Exceção ao chamar RPC deduct_order_stock:', rpcEx);
+      return { success: false, message: 'Erro interno ao realizar baixa atômica de estoque.' };
     }
 
     // 4. Update order status to 'pago'
@@ -608,6 +574,54 @@ Sitemap: https://omiaa.com.br/sitemap.xml
     }
   });
 
+  // Server-side Admin Authorization Guard
+  async function authenticateAdminUser(
+    req: Request,
+    allowedRoles: string[] = ['super_admin', 'admin']
+  ): Promise<{ user?: any; userRoles?: string[]; errorStatus?: number; errorMessage?: string }> {
+    if (!serverSupabase) {
+      return { errorStatus: 500, errorMessage: 'Servidor Supabase não configurado.' };
+    }
+
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return { errorStatus: 401, errorMessage: 'Token de autenticação não fornecido no cabeçalho Authorization.' };
+    }
+
+    const token = authHeader.substring(7).trim();
+    if (!token) {
+      return { errorStatus: 401, errorMessage: 'Token de autenticação vazio.' };
+    }
+
+    const { data: { user }, error: authErr } = await serverSupabase.auth.getUser(token);
+    if (authErr || !user) {
+      return { errorStatus: 401, errorMessage: 'Sessão inválida ou token expirado.' };
+    }
+
+    // Query user roles from database
+    const { data: roleRecords, error: roleErr } = await serverSupabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id);
+
+    if (roleErr) {
+      console.error('[ADMIN AUTH GUARD] Erro ao consultar user_roles:', roleErr);
+    }
+
+    const userRoles = (roleRecords || []).map((r: any) => r.role);
+
+    // Check authorization: super_admin / admin always allowed, or if user has any of allowedRoles
+    const isAuthorized = userRoles.some((r: string) =>
+      r === 'super_admin' || r === 'admin' || allowedRoles.includes(r)
+    );
+
+    if (!isAuthorized) {
+      return { errorStatus: 403, errorMessage: 'Acesso negado. Permissão insuficiente para executar esta ação.' };
+    }
+
+    return { user, userRoles };
+  }
+
   // InfinitePay Transaction Verification Endpoint
   app.post('/api/payments/infinitepay/verify', async (req: Request, res: Response) => {
     try {
@@ -632,9 +646,87 @@ Sitemap: https://omiaa.com.br/sitemap.xml
         return res.status(404).json({ success: false, errorMessage: 'Pedido não encontrado.' });
       }
 
-      // If order is already paid, return confirmed mapped order immediately
-      if (dbOrder.status === 'pago') {
-        const mappedOrder = {
+      // Check if request is authenticated to determine exposure of sensitive personal data
+      let isOwnerOrAdmin = false;
+      const authHeader = req.headers.authorization || '';
+      if (authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7).trim();
+        if (token) {
+          const { data: { user } } = await serverSupabase.auth.getUser(token);
+          if (user) {
+            if (
+              user.id === dbOrder.customer_id ||
+              (user.email && dbOrder.customer_email && user.email.toLowerCase() === dbOrder.customer_email.toLowerCase())
+            ) {
+              isOwnerOrAdmin = true;
+            } else {
+              // Check if user is staff/admin
+              const { data: rRecords } = await serverSupabase
+                .from('user_roles')
+                .select('role')
+                .eq('user_id', user.id);
+              const uRoles = (rRecords || []).map((r: any) => r.role);
+              if (uRoles.some((r: string) => ['super_admin', 'admin', 'atendimento', 'financeiro', 'logistica'].includes(r))) {
+                isOwnerOrAdmin = true;
+              }
+            }
+          }
+        }
+      }
+
+      // If order is still pending, attempt live payment check with InfinitePay payment_check
+      if (dbOrder.status !== 'pago') {
+        const handle = process.env.INFINITEPAY_HANDLE;
+        if (handle && handle.trim() !== '' && handle !== 'seu_handle_aqui') {
+          try {
+            const verifyRes = await fetch('https://api.checkout.infinitepay.io/payment_check', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                handle: handle.trim(),
+                order_nsu: dbOrder.code || dbOrder.id
+              })
+            });
+
+            if (verifyRes.ok) {
+              const verifyData = await verifyRes.json();
+              const isPaidConfirmed = (
+                verifyData.paid === true ||
+                verifyData.status === 'paid' ||
+                verifyData.status === 'approved'
+              );
+
+              if (isPaidConfirmed) {
+                const rawPaid = verifyData.paid_amount || verifyData.amount || 0;
+                const numPaid = Number(rawPaid);
+                const confirmedCents = numPaid > 1000 ? Math.round(numPaid) : Math.round(numPaid * 100);
+                const expectedCents = Math.round(Number(dbOrder.total) * 100);
+
+                if (confirmedCents >= expectedCents) {
+                  const confResult = await processOrderPaymentConfirmation(
+                    dbOrder.code || dbOrder.id,
+                    dbOrder.payment_method,
+                    verifyData.transaction_nsu || verifyData.id
+                  );
+                  if (confResult.success) {
+                    dbOrder.status = 'pago';
+                  }
+                } else {
+                  console.warn(
+                    `[VERIFY PRICE TAMPERING BLOCKED] Pedido ${order_nsu}: valor pago ${confirmedCents} cents < esperado ${expectedCents} cents.`
+                  );
+                }
+              }
+            }
+          } catch (checkErr) {
+            console.warn('[INFINITEPAY VERIFY] Erro ao sincronizar status online durante verify:', checkErr);
+          }
+        }
+      }
+
+      // Prepare response data based on authorization level
+      if (isOwnerOrAdmin) {
+        const fullMappedOrder = {
           id: dbOrder.id,
           code: dbOrder.code,
           date: dbOrder.created_at,
@@ -660,87 +752,25 @@ Sitemap: https://omiaa.com.br/sitemap.xml
 
         return res.json({
           success: true,
-          status: 'pago',
-          order: mappedOrder
+          status: dbOrder.status,
+          order: fullMappedOrder
         });
       }
 
-      // If order is still pending, attempt live payment check with InfinitePay payment_check
-      const handle = process.env.INFINITEPAY_HANDLE;
-      if (handle && handle.trim() !== '' && handle !== 'seu_handle_aqui') {
-        try {
-          const verifyRes = await fetch('https://api.checkout.infinitepay.io/payment_check', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              handle: handle.trim(),
-              order_nsu: dbOrder.code || dbOrder.id
-            })
-          });
-
-          if (verifyRes.ok) {
-            const verifyData = await verifyRes.json();
-            const isPaidConfirmed = (
-              verifyData.paid === true ||
-              verifyData.status === 'paid' ||
-              verifyData.status === 'approved'
-            );
-
-            if (isPaidConfirmed) {
-              const rawPaid = verifyData.paid_amount || verifyData.amount || 0;
-              const numPaid = Number(rawPaid);
-              const confirmedCents = numPaid > 1000 ? Math.round(numPaid) : Math.round(numPaid * 100);
-              const expectedCents = Math.round(Number(dbOrder.total) * 100);
-
-              if (confirmedCents >= expectedCents) {
-                const confResult = await processOrderPaymentConfirmation(
-                  dbOrder.code || dbOrder.id,
-                  dbOrder.payment_method,
-                  verifyData.transaction_nsu || verifyData.id
-                );
-                if (confResult.success) {
-                  dbOrder.status = 'pago';
-                }
-              } else {
-                console.warn(
-                  `[VERIFY PRICE TAMPERING BLOCKED] Pedido ${order_nsu}: valor pago ${confirmedCents} cents < esperado ${expectedCents} cents.`
-                );
-              }
-            }
-          }
-        } catch (checkErr) {
-          console.warn('[INFINITEPAY VERIFY] Erro ao sincronizar status online durante verify:', checkErr);
-        }
-      }
-
-      const mappedOrder = {
+      // For unauthenticated / non-owner callers, return ONLY essential non-sensitive payment status
+      const sanitizedOrder = {
         id: dbOrder.id,
         code: dbOrder.code,
         date: dbOrder.created_at,
-        items: (dbOrder.order_items || []).map((itemRow: any) => ({
-          product: itemRow.product_snapshot || {
-            id: itemRow.product_id || 'prod-1',
-            name: 'Produto Alquímico',
-            price: Number(itemRow.unit_price)
-          },
-          quantity: itemRow.quantity,
-          selectedOption: itemRow.selected_option
-        })),
-        subtotal: Number(dbOrder.subtotal),
-        shippingFee: Number(dbOrder.shipping_fee),
-        discount: Number(dbOrder.discount),
         total: Number(dbOrder.total),
         status: dbOrder.status,
-        paymentMethod: dbOrder.payment_method,
-        deliveryAddress: dbOrder.delivery_address,
-        trackingCode: dbOrder.tracking_code,
-        customerEmail: dbOrder.customer_email
+        paymentMethod: dbOrder.payment_method
       };
 
       return res.json({
         success: true,
         status: dbOrder.status,
-        order: mappedOrder
+        order: sanitizedOrder
       });
     } catch (err) {
       console.error('[INFINITEPAY VERIFY] Erro na verificação de transação:', err);
@@ -751,6 +781,11 @@ Sitemap: https://omiaa.com.br/sitemap.xml
   // Cleanup Expired Pending Orders (> 24 hours) Endpoint
   app.post('/api/admin/cleanup-pending-orders', async (req: Request, res: Response) => {
     try {
+      const auth = await authenticateAdminUser(req, ['super_admin', 'admin', 'financeiro', 'logistica']);
+      if (auth.errorStatus) {
+        return res.status(auth.errorStatus).json({ success: false, errorMessage: auth.errorMessage });
+      }
+
       if (!serverSupabase) {
         return res.status(400).json({ success: false, errorMessage: 'Supabase não configurado.' });
       }
@@ -790,7 +825,7 @@ Sitemap: https://omiaa.com.br/sitemap.xml
         return res.status(500).json({ success: false, errorMessage: cancelErr.message });
       }
 
-      console.log(`[CLEANUP PENDING ORDERS] ${idsToCancel.length} pedidos pendentes há mais de 24h foram cancelados com sucesso.`);
+      console.log(`[CLEANUP PENDING ORDERS] ${idsToCancel.length} pedidos pendentes há mais de 24h foram cancelados com sucesso por ${auth.user?.id}.`);
       return res.json({
         success: true,
         count: idsToCancel.length,
@@ -818,6 +853,11 @@ Sitemap: https://omiaa.com.br/sitemap.xml
   // Create Product
   app.post('/api/admin/products', async (req: Request, res: Response) => {
     try {
+      const auth = await authenticateAdminUser(req, ['super_admin', 'admin', 'marketing']);
+      if (auth.errorStatus) {
+        return res.status(auth.errorStatus).json({ success: false, errorMessage: auth.errorMessage });
+      }
+
       if (!serverSupabase) {
         return res.status(400).json({
           success: false,
@@ -912,6 +952,11 @@ Sitemap: https://omiaa.com.br/sitemap.xml
   // Update Product
   app.put('/api/admin/products/:id', async (req: Request, res: Response) => {
     try {
+      const auth = await authenticateAdminUser(req, ['super_admin', 'admin', 'marketing', 'logistica']);
+      if (auth.errorStatus) {
+        return res.status(auth.errorStatus).json({ success: false, errorMessage: auth.errorMessage });
+      }
+
       if (!serverSupabase) {
         return res.status(400).json({
           success: false,
@@ -1003,6 +1048,11 @@ Sitemap: https://omiaa.com.br/sitemap.xml
   // Delete Product
   app.delete('/api/admin/products/:id', async (req: Request, res: Response) => {
     try {
+      const auth = await authenticateAdminUser(req, ['super_admin', 'admin']);
+      if (auth.errorStatus) {
+        return res.status(auth.errorStatus).json({ success: false, errorMessage: auth.errorMessage });
+      }
+
       if (!serverSupabase) {
         return res.status(400).json({
           success: false,
@@ -1161,25 +1211,52 @@ Sitemap: https://omiaa.com.br/sitemap.xml
   // Mercado Pago Webhook Endpoint Listener
   app.post('/api/webhooks/mercadopago', async (req: Request, res: Response) => {
     try {
-      const { type, action, data } = req.body;
-      console.log(`[Mercado Pago Webhook Received] Type: ${type || action}, Data ID:`, data?.id || req.body?.id);
+      const { type, action, data } = req.body || {};
+      const paymentId = data?.id || req.body?.id;
+      console.log(`[Mercado Pago Webhook Received] Type: ${type || action}, Payment ID:`, paymentId);
 
-      // In production, fetch payment details from Mercado Pago API using data.id and update DB status
-      if (data?.id && process.env.MERCADOPAGO_ACCESS_TOKEN) {
-        // Query Mercado Pago API for payment status
-        const payCheck = await fetch(`https://api.mercadopago.com/v1/payments/${data.id}`, {
+      if (paymentId && process.env.MERCADOPAGO_ACCESS_TOKEN) {
+        const payCheck = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
           headers: { 'Authorization': `Bearer ${process.env.MERCADOPAGO_ACCESS_TOKEN}` }
         });
+
         if (payCheck.ok) {
           const paymentInfo = await payCheck.json();
-          console.log(`[Mercado Pago Webhook Payment Verified] ID: ${paymentInfo.id}, Status: ${paymentInfo.status}`);
+          console.log(`[Mercado Pago Webhook Payment Verified] ID: ${paymentInfo.id}, Status: ${paymentInfo.status}, External Ref: ${paymentInfo.external_reference}`);
+
+          if (paymentInfo.status === 'approved' && paymentInfo.external_reference && serverSupabase) {
+            const targetNsu = paymentInfo.external_reference;
+            const { data: dbOrder } = await serverSupabase
+              .from('orders')
+              .select('id, total, status')
+              .or(`code.eq.${targetNsu},id.eq.${targetNsu}`)
+              .maybeSingle();
+
+            if (dbOrder) {
+              const expectedTotal = Number(dbOrder.total);
+              const paidAmount = Number(paymentInfo.transaction_amount || 0);
+
+              if (paidAmount >= expectedTotal) {
+                const confResult = await processOrderPaymentConfirmation(
+                  targetNsu,
+                  paymentInfo.payment_method_id || 'mercadopago',
+                  String(paymentInfo.id)
+                );
+                console.log(`[Mercado Pago Webhook Order Confirmed] Pedido ${targetNsu}:`, confResult.message);
+              } else {
+                console.error(`[Mercado Pago Webhook Price Mismatch] Pedido ${targetNsu}: Pago R$ ${paidAmount} < Devido R$ ${expectedTotal}`);
+              }
+            }
+          }
+        } else {
+          console.error('[Mercado Pago Webhook] Erro ao consultar pagamento na API Mercado Pago:', await payCheck.text());
         }
       }
 
       return res.status(200).json({ received: true, status: 'processed' });
     } catch (err) {
       console.error('Webhook processing error:', err);
-      return res.status(200).json({ received: true, warning: 'Failed to query details' });
+      return res.status(200).json({ received: true, warning: 'Failed to process webhook' });
     }
   });
 

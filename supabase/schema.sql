@@ -263,20 +263,69 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_user ON public.user_roles(user_id);
 
 
 -- ============================================================================
--- HELPER FUNCTIONS & RLS POLICIES
+-- HELPER FUNCTIONS & RLS POLICIES (GRANULAR RBAC)
 -- ============================================================================
 
--- Function to check if a user possesses administrative roles
+-- Function to check if a user is super_admin
+CREATE OR REPLACE FUNCTION public.is_super_admin(p_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id = p_user_id AND role = 'super_admin'
+  );
+END;
+$$;
+
+-- Function to check if a user possesses global administrative roles (super_admin, admin, or gerente)
 CREATE OR REPLACE FUNCTION public.is_admin(p_user_id UUID)
-RETURNS BOOLEAN AS $$
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
   RETURN EXISTS (
     SELECT 1 FROM public.user_roles
     WHERE user_id = p_user_id
-    AND role IN ('super_admin', 'admin', 'gerente', 'marketing', 'financeiro', 'logistica', 'editor', 'atendimento')
+    AND role IN ('super_admin', 'admin', 'gerente')
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
+
+-- Helper function to check if a user has a specific role
+CREATE OR REPLACE FUNCTION public.has_role(p_user_id UUID, p_role TEXT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id = p_user_id AND role = p_role
+  );
+END;
+$$;
+
+-- Helper function to check if a user has any of the given roles
+CREATE OR REPLACE FUNCTION public.has_any_role(p_user_id UUID, p_roles TEXT[])
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id = p_user_id AND role = ANY(p_roles)
+  );
+END;
+$$;
 
 -- Helper function to safely validate a coupon code during checkout without exposing all coupons
 CREATE OR REPLACE FUNCTION public.validate_coupon(p_code TEXT)
@@ -286,7 +335,11 @@ RETURNS TABLE (
   discount_percent INTEGER,
   active BOOLEAN,
   expires_at TIMESTAMPTZ
-) AS $$
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
   RETURN QUERY
   SELECT c.id, c.code, c.discount_percent, c.active, c.expires_at
@@ -296,7 +349,7 @@ BEGIN
     AND (c.expires_at IS NULL OR c.expires_at > NOW())
   LIMIT 1;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 -- ----------------------------------------------------------------------------
 -- ATOMIC IDEMPOTENT STOCK DEDUCTION RPC FUNCTION
@@ -305,6 +358,7 @@ CREATE OR REPLACE FUNCTION public.deduct_order_stock(p_order_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_order RECORD;
@@ -371,6 +425,7 @@ CREATE OR REPLACE FUNCTION public.cleanup_expired_pending_orders()
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_cancelled_count INTEGER;
@@ -464,9 +519,13 @@ DROP POLICY IF EXISTS "User Roles Admin Manage" ON public.user_roles;
 CREATE POLICY "Categories Public Select" ON public.categories
     FOR SELECT USING (true);
 
--- Admin full management
+-- Admin and Marketing management
 CREATE POLICY "Categories Admin Manage" ON public.categories
-    FOR ALL USING (public.is_admin(auth.uid())) WITH CHECK (public.is_admin(auth.uid()));
+    FOR ALL USING (
+        public.is_admin(auth.uid()) OR public.has_role(auth.uid(), 'marketing')
+    ) WITH CHECK (
+        public.is_admin(auth.uid()) OR public.has_role(auth.uid(), 'marketing')
+    );
 
 
 -- ----------------------------------------------------------------------------
@@ -476,26 +535,45 @@ CREATE POLICY "Categories Admin Manage" ON public.categories
 CREATE POLICY "Products Public Select" ON public.products
     FOR SELECT USING (true);
 
--- Admin full management
+-- Admin, Marketing, and Logistica management
 CREATE POLICY "Products Admin Manage" ON public.products
-    FOR ALL USING (public.is_admin(auth.uid())) WITH CHECK (public.is_admin(auth.uid()));
+    FOR ALL USING (
+        public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['marketing', 'logistica'])
+    ) WITH CHECK (
+        public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['marketing', 'logistica'])
+    );
 
 
 -- ----------------------------------------------------------------------------
 -- 3. CUSTOMERS POLICIES
 -- ----------------------------------------------------------------------------
--- Users see only their own profile; admins see all
+-- Users see only their own profile; Admin/Atendimento/Financeiro/Logistica see profiles
 CREATE POLICY "Customers Self Select" ON public.customers
-    FOR SELECT USING (auth.uid() = auth_user_id OR public.is_admin(auth.uid()));
+    FOR SELECT USING (
+        auth.uid() = auth_user_id 
+        OR public.is_admin(auth.uid()) 
+        OR public.has_any_role(auth.uid(), ARRAY['atendimento', 'financeiro', 'logistica'])
+    );
 
--- Users insert only their own profile during sign up
+-- Users insert only their own profile during sign up; Admin/Atendimento can insert
 CREATE POLICY "Customers Self Insert" ON public.customers
-    FOR INSERT WITH CHECK (auth.uid() = auth_user_id OR public.is_admin(auth.uid()));
+    FOR INSERT WITH CHECK (
+        auth.uid() = auth_user_id 
+        OR public.is_admin(auth.uid()) 
+        OR public.has_role(auth.uid(), 'atendimento')
+    );
 
--- Users update only their own profile; admins can update
+-- Users update only their own profile; Admin/Atendimento can update
 CREATE POLICY "Customers Self Update" ON public.customers
-    FOR UPDATE USING (auth.uid() = auth_user_id OR public.is_admin(auth.uid()))
-    WITH CHECK (auth.uid() = auth_user_id OR public.is_admin(auth.uid()));
+    FOR UPDATE USING (
+        auth.uid() = auth_user_id 
+        OR public.is_admin(auth.uid()) 
+        OR public.has_role(auth.uid(), 'atendimento')
+    ) WITH CHECK (
+        auth.uid() = auth_user_id 
+        OR public.is_admin(auth.uid()) 
+        OR public.has_role(auth.uid(), 'atendimento')
+    );
 
 -- Admin only delete
 CREATE POLICY "Customers Admin Delete" ON public.customers
@@ -505,7 +583,7 @@ CREATE POLICY "Customers Admin Delete" ON public.customers
 -- ----------------------------------------------------------------------------
 -- 4. ORDERS POLICIES
 -- ----------------------------------------------------------------------------
--- Customer reads only their own orders (by linked customer_id or email); Admin reads all
+-- Customer reads only their own orders; Staff reads assigned operational orders
 CREATE POLICY "Orders Self/Admin Select" ON public.orders
     FOR SELECT USING (
         (customer_id IS NOT NULL AND EXISTS (
@@ -513,9 +591,10 @@ CREATE POLICY "Orders Self/Admin Select" ON public.orders
         ))
         OR (customer_email IS NOT NULL AND customer_email = auth.jwt() ->> 'email')
         OR public.is_admin(auth.uid())
+        OR public.has_any_role(auth.uid(), ARRAY['financeiro', 'logistica', 'atendimento'])
     );
 
--- Authenticated customers create only their own orders; Admin can create
+-- Authenticated customers create only their own orders; Admin/Atendimento can create
 CREATE POLICY "Orders Self/Admin Insert" ON public.orders
     FOR INSERT WITH CHECK (
         (customer_id IS NOT NULL AND EXISTS (
@@ -523,11 +602,16 @@ CREATE POLICY "Orders Self/Admin Insert" ON public.orders
         ))
         OR (customer_email IS NOT NULL AND customer_email = auth.jwt() ->> 'email')
         OR public.is_admin(auth.uid())
+        OR public.has_role(auth.uid(), 'atendimento')
     );
 
--- Admin only update
+-- Admin, Financeiro, Logistica, and Atendimento update orders
 CREATE POLICY "Orders Admin Update" ON public.orders
-    FOR UPDATE USING (public.is_admin(auth.uid())) WITH CHECK (public.is_admin(auth.uid()));
+    FOR UPDATE USING (
+        public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['financeiro', 'logistica', 'atendimento'])
+    ) WITH CHECK (
+        public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['financeiro', 'logistica', 'atendimento'])
+    );
 
 -- Admin only delete
 CREATE POLICY "Orders Admin Delete" ON public.orders
@@ -537,7 +621,7 @@ CREATE POLICY "Orders Admin Delete" ON public.orders
 -- ----------------------------------------------------------------------------
 -- 5. ORDER ITEMS POLICIES
 -- ----------------------------------------------------------------------------
--- Customer reads order items belonging to their own orders; Admin reads all
+-- Customer reads order items belonging to their own orders; Staff reads operational order items
 CREATE POLICY "Order Items Self/Admin Select" ON public.order_items
     FOR SELECT USING (
         EXISTS (
@@ -547,9 +631,10 @@ CREATE POLICY "Order Items Self/Admin Select" ON public.order_items
             AND (c.auth_user_id = auth.uid() OR o.customer_email = auth.jwt() ->> 'email')
         )
         OR public.is_admin(auth.uid())
+        OR public.has_any_role(auth.uid(), ARRAY['financeiro', 'logistica', 'atendimento'])
     );
 
--- Insert permitted during creation of customer's own order; Admin can insert
+-- Insert permitted during creation of customer's own order; Admin/Atendimento can insert
 CREATE POLICY "Order Items Self/Admin Insert" ON public.order_items
     FOR INSERT WITH CHECK (
         EXISTS (
@@ -559,11 +644,16 @@ CREATE POLICY "Order Items Self/Admin Insert" ON public.order_items
             AND (c.auth_user_id = auth.uid() OR o.customer_email = auth.jwt() ->> 'email')
         )
         OR public.is_admin(auth.uid())
+        OR public.has_role(auth.uid(), 'atendimento')
     );
 
--- Admin only update
+-- Admin, Financeiro, and Logistica update order items
 CREATE POLICY "Order Items Admin Update" ON public.order_items
-    FOR UPDATE USING (public.is_admin(auth.uid())) WITH CHECK (public.is_admin(auth.uid()));
+    FOR UPDATE USING (
+        public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['financeiro', 'logistica'])
+    ) WITH CHECK (
+        public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['financeiro', 'logistica'])
+    );
 
 -- Admin only delete
 CREATE POLICY "Order Items Admin Delete" ON public.order_items
@@ -573,7 +663,7 @@ CREATE POLICY "Order Items Admin Delete" ON public.order_items
 -- ----------------------------------------------------------------------------
 -- 6. CUSTOM FRAGRANCES POLICIES
 -- ----------------------------------------------------------------------------
--- Customer views only their own fragrance requests; Admin views all
+-- Customer views only their own fragrance requests; Atendimento and Logistica view
 CREATE POLICY "Custom Fragrances Self/Admin Select" ON public.custom_fragrances
     FOR SELECT USING (
         (customer_id IS NOT NULL AND EXISTS (
@@ -581,9 +671,10 @@ CREATE POLICY "Custom Fragrances Self/Admin Select" ON public.custom_fragrances
         ))
         OR (customer_email IS NOT NULL AND customer_email = auth.jwt() ->> 'email')
         OR public.is_admin(auth.uid())
+        OR public.has_any_role(auth.uid(), ARRAY['atendimento', 'logistica'])
     );
 
--- Customer creates only their own fragrance requests; Admin can create
+-- Customer creates only their own fragrance requests; Atendimento creates
 CREATE POLICY "Custom Fragrances Self/Admin Insert" ON public.custom_fragrances
     FOR INSERT WITH CHECK (
         (customer_id IS NOT NULL AND EXISTS (
@@ -591,9 +682,10 @@ CREATE POLICY "Custom Fragrances Self/Admin Insert" ON public.custom_fragrances
         ))
         OR (customer_email IS NOT NULL AND customer_email = auth.jwt() ->> 'email')
         OR public.is_admin(auth.uid())
+        OR public.has_role(auth.uid(), 'atendimento')
     );
 
--- Customer updates only their own requests; Admin can update
+-- Customer updates only their own requests; Atendimento updates
 CREATE POLICY "Custom Fragrances Self/Admin Update" ON public.custom_fragrances
     FOR UPDATE USING (
         (customer_id IS NOT NULL AND EXISTS (
@@ -601,12 +693,14 @@ CREATE POLICY "Custom Fragrances Self/Admin Update" ON public.custom_fragrances
         ))
         OR (customer_email IS NOT NULL AND customer_email = auth.jwt() ->> 'email')
         OR public.is_admin(auth.uid())
+        OR public.has_role(auth.uid(), 'atendimento')
     ) WITH CHECK (
         (customer_id IS NOT NULL AND EXISTS (
             SELECT 1 FROM public.customers c WHERE c.id = custom_fragrances.customer_id AND c.auth_user_id = auth.uid()
         ))
         OR (customer_email IS NOT NULL AND customer_email = auth.jwt() ->> 'email')
         OR public.is_admin(auth.uid())
+        OR public.has_role(auth.uid(), 'atendimento')
     );
 
 -- Admin only delete
@@ -617,15 +711,23 @@ CREATE POLICY "Custom Fragrances Admin Delete" ON public.custom_fragrances
 -- ----------------------------------------------------------------------------
 -- 7. COUPONS POLICIES
 -- ----------------------------------------------------------------------------
--- Admin only listing, creation, editing and deletion. Non-admins validate via validate_coupon() RPC
+-- Admin, Marketing, and Financeiro listing/management. Non-admins validate via validate_coupon() RPC
 CREATE POLICY "Coupons Admin Select" ON public.coupons
-    FOR SELECT USING (public.is_admin(auth.uid()));
+    FOR SELECT USING (
+        public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['marketing', 'financeiro'])
+    );
 
 CREATE POLICY "Coupons Admin Insert" ON public.coupons
-    FOR INSERT WITH CHECK (public.is_admin(auth.uid()));
+    FOR INSERT WITH CHECK (
+        public.is_admin(auth.uid()) OR public.has_role(auth.uid(), 'marketing')
+    );
 
 CREATE POLICY "Coupons Admin Update" ON public.coupons
-    FOR UPDATE USING (public.is_admin(auth.uid())) WITH CHECK (public.is_admin(auth.uid()));
+    FOR UPDATE USING (
+        public.is_admin(auth.uid()) OR public.has_role(auth.uid(), 'marketing')
+    ) WITH CHECK (
+        public.is_admin(auth.uid()) OR public.has_role(auth.uid(), 'marketing')
+    );
 
 CREATE POLICY "Coupons Admin Delete" ON public.coupons
     FOR DELETE USING (public.is_admin(auth.uid()));
@@ -634,25 +736,37 @@ CREATE POLICY "Coupons Admin Delete" ON public.coupons
 -- ----------------------------------------------------------------------------
 -- 8. BLOG POSTS POLICIES
 -- ----------------------------------------------------------------------------
--- Public reads only published articles (published_at <= NOW()); Admin reads all
+-- Public reads only published articles (published_at <= NOW()); Editor and Marketing read all
 CREATE POLICY "Blog Public Published Select" ON public.blog_posts
-    FOR SELECT USING (published_at <= NOW() OR public.is_admin(auth.uid()));
+    FOR SELECT USING (
+        published_at <= NOW() OR public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['editor', 'marketing'])
+    );
 
--- Admin full management for blog
+-- Editor and Marketing manage blog posts
 CREATE POLICY "Blog Admin Manage" ON public.blog_posts
-    FOR ALL USING (public.is_admin(auth.uid())) WITH CHECK (public.is_admin(auth.uid()));
+    FOR ALL USING (
+        public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['editor', 'marketing'])
+    ) WITH CHECK (
+        public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['editor', 'marketing'])
+    );
 
 
 -- ----------------------------------------------------------------------------
 -- 9. BOTANICAL LIBRARY POLICIES
 -- ----------------------------------------------------------------------------
--- Public reads only published entries (published = true); Admin reads all
+-- Public reads only published entries (published = true); Editor and Marketing read all
 CREATE POLICY "Botanical Public Published Select" ON public.botanical_library
-    FOR SELECT USING (published = TRUE OR public.is_admin(auth.uid()));
+    FOR SELECT USING (
+        published = TRUE OR public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['editor', 'marketing'])
+    );
 
--- Admin full management for botanical library
+-- Editor and Marketing manage botanical library
 CREATE POLICY "Botanical Admin Manage" ON public.botanical_library
-    FOR ALL USING (public.is_admin(auth.uid())) WITH CHECK (public.is_admin(auth.uid()));
+    FOR ALL USING (
+        public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['editor', 'marketing'])
+    ) WITH CHECK (
+        public.is_admin(auth.uid()) OR public.has_any_role(auth.uid(), ARRAY['editor', 'marketing'])
+    );
 
 
 -- ----------------------------------------------------------------------------
@@ -674,9 +788,10 @@ CREATE POLICY "Store Settings Admin Manage" ON public.store_settings
 CREATE POLICY "User Roles Select Policy" ON public.user_roles
     FOR SELECT USING (auth.uid() = user_id OR public.is_admin(auth.uid()));
 
--- Admins manage user roles
+-- Only super_admin / admin manage user roles
 CREATE POLICY "User Roles Admin Manage" ON public.user_roles
     FOR ALL USING (public.is_admin(auth.uid())) WITH CHECK (public.is_admin(auth.uid()));
+
 
 
 
