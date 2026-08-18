@@ -64,7 +64,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ initialTab = 'bran
   const [systemLogs, setSystemLogs] = useState<Array<{ id: string; time: string; type: string; msg: string }>>([
     { id: '1', time: '10:42:15', type: 'INFO', msg: 'Sistema de configurações da loja inicializado.' },
     { id: '2', time: '10:45:00', type: 'SUCCESS', msg: 'Cache de ativos estáticos sincronizado.' },
-    { id: '3', time: '10:50:22', type: 'INFO', msg: 'Sincronização Supabase realizada com sucesso.' }
+    { id: '3', time: '10:50:22', type: 'INFO', msg: 'Sincronização com o banco de dados realizada com sucesso.' }
   ]);
 
   // Keep local form data in sync if storeSettings changes externally
@@ -1655,7 +1655,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ initialTab = 'bran
             {/* Bottom Form Action Bar */}
             <div className="flex items-center justify-between bg-white p-5 rounded-3xl border border-[#E2D9C8] shadow-xs">
               <span className="text-xs text-[#718096]">
-                Todas as alterações são sincronizadas com o banco de dados Supabase e o cache local do navegador.
+                Todas as alterações são sincronizadas com o banco de dados seguro e o cache local do navegador.
               </span>
 
               <button

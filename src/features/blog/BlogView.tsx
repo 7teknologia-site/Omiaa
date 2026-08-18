@@ -28,7 +28,7 @@ export const BlogView: React.FC = () => {
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto px-4 py-20 text-center font-serif text-[#14281D]">
-        <p className="animate-pulse text-lg">Carregando Diário Alquímico do Supabase...</p>
+        <p className="animate-pulse text-lg">Carregando Diário Alquímico...</p>
       </div>
     );
   }
@@ -134,7 +134,7 @@ export const BlogView: React.FC = () => {
       </div>
 
       <p className="text-xs text-[#718096] max-w-2xl">
-        Artigos e rituais conectados diretamente ao banco de dados Supabase (`blog_posts`), registrando saberes ancestrais e fitoterapia clássica.
+        Artigos e rituais conectados ao acervo OMIAÁ, registrando saberes ancestrais e fitoterapia clássica.
       </p>
 
       {/* Posts Grid */}

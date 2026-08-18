@@ -3,8 +3,6 @@ import {
   XCircle,
   AlertTriangle,
   RefreshCw,
-  ShoppingBag,
-  CreditCard,
   ShieldAlert,
   ArrowLeft
 } from 'lucide-react';

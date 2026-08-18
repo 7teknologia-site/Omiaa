@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { User, PackageCheck, MapPin, ArrowLeft } from 'lucide-react';
+import { User, PackageCheck, MapPin, ArrowLeft, Sparkles } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { AccountProfile } from './AccountProfile';
 import { AccountOrders } from './AccountOrders';
 import { AccountAddresses } from './AccountAddresses';
+import { AccountJourney } from './AccountJourney';
 
 export const AccountView: React.FC = () => {
   const { user, orders, setViewMode } = useShop();
-  const [tab, setTab] = useState<'profile' | 'orders' | 'addresses'>('profile');
+  const [tab, setTab] = useState<'profile' | 'journey' | 'orders' | 'addresses'>('profile');
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8 font-sans">
@@ -28,20 +29,30 @@ export const AccountView: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-4 border-b border-[#E2D9C8] pb-2 text-xs font-bold uppercase tracking-wider">
+      <div className="flex items-center gap-2 sm:gap-4 border-b border-[#E2D9C8] pb-2 text-xs font-bold uppercase tracking-wider overflow-x-auto">
         <button
           onClick={() => setTab('profile')}
-          className={`flex items-center gap-2 pb-2 border-b-2 transition-colors ${
+          className={`flex items-center gap-2 pb-2 border-b-2 transition-colors shrink-0 ${
             tab === 'profile' ? 'border-[#C5A059] text-[#C5A059]' : 'border-transparent text-[#718096]'
           }`}
         >
           <User className="w-4 h-4" />
-          <span>Perfil & Pontos</span>
+          <span>Perfil & Acesso</span>
+        </button>
+
+        <button
+          onClick={() => setTab('journey')}
+          className={`flex items-center gap-2 pb-2 border-b-2 transition-colors shrink-0 ${
+            tab === 'journey' ? 'border-[#C5A059] text-[#C5A059]' : 'border-transparent text-[#718096]'
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>Jornada & Pontos</span>
         </button>
 
         <button
           onClick={() => setTab('orders')}
-          className={`flex items-center gap-2 pb-2 border-b-2 transition-colors ${
+          className={`flex items-center gap-2 pb-2 border-b-2 transition-colors shrink-0 ${
             tab === 'orders' ? 'border-[#C5A059] text-[#C5A059]' : 'border-transparent text-[#718096]'
           }`}
         >
@@ -51,7 +62,7 @@ export const AccountView: React.FC = () => {
 
         <button
           onClick={() => setTab('addresses')}
-          className={`flex items-center gap-2 pb-2 border-b-2 transition-colors ${
+          className={`flex items-center gap-2 pb-2 border-b-2 transition-colors shrink-0 ${
             tab === 'addresses' ? 'border-[#C5A059] text-[#C5A059]' : 'border-transparent text-[#718096]'
           }`}
         >
@@ -62,6 +73,7 @@ export const AccountView: React.FC = () => {
 
       {/* View Content */}
       {tab === 'profile' && <AccountProfile user={user} />}
+      {tab === 'journey' && <AccountJourney user={user} />}
       {tab === 'orders' && <AccountOrders orders={orders} />}
       {tab === 'addresses' && <AccountAddresses addresses={user.addresses} />}
 
