@@ -33,7 +33,7 @@ export const OrderErrorView: React.FC<OrderErrorViewProps> = ({ errorMessage }) 
           </span>
           <h1 className="font-serif text-2xl sm:text-3xl font-bold">Falha no Pagamento</h1>
           <p className="text-xs text-red-100 max-w-md mx-auto">
-            {displayMessage || 'Sua tentativa de pagamento via Mercado Pago não pôde ser processada neste momento.'}
+            {displayMessage || 'Sua tentativa de pagamento não pôde ser processada pela operadora neste momento.'}
           </p>
         </div>
       </div>
@@ -53,7 +53,7 @@ export const OrderErrorView: React.FC<OrderErrorViewProps> = ({ errorMessage }) 
             <strong>Bloqueio de Segurança do Banco:</strong> Algumas instituições financeiras exigem confirmação pelo app do banco.
           </li>
           <li>
-            <strong>Instabilidade Temporária no PIX/Mercado Pago:</strong> Se utilizou PIX, certifique-se de realizar o pagamento antes da expiração da chave.
+            <strong>Instabilidade Temporária no Gateway ou PIX:</strong> Se utilizou PIX, certifique-se de realizar a leitura do QR Code antes da expiração da chave.
           </li>
         </ul>
 
